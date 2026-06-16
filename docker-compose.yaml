@@ -1,0 +1,97 @@
+# Plain Apache Airflow (LocalExecutor) — replaces the Astro CLI tooling.
+# Start with:  docker compose up -d   (Airflow UI on http://localhost:8088, admin/admin)
+---
+x-airflow-common: &airflow-common
+  build: .
+  environment: &airflow-common-env
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+    AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
+    AIRFLOW__CORE__FERNET_KEY: ''
+    AIRFLOW__WEBSERVER__EXPOSE_CONFIG: 'true'
+    AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: 'true'
+    # Astro put the project root on sys.path; vanilla Airflow only adds dags/.
+    # Expose it so `from include...` works in DAGs and external_python tasks.
+    PYTHONPATH: /opt/airflow
+    # GCP connection (was airflow_settings.yaml under Astro)
+    AIRFLOW_CONN_GCP: >-
+      {"conn_type": "google_cloud_platform",
+       "extra": {"key_path": "/usr/local/airflow/include/gcp/service_account.json",
+                 "project": "retail-pipeline-317c24",
+                 "scope": "https://www.googleapis.com/auth/cloud-platform"}}
+  volumes:
+    - ./dags:/opt/airflow/dags
+    - ./include:/opt/airflow/include
+    - ./plugins:/opt/airflow/plugins
+    - airflow-logs:/opt/airflow/logs
+  depends_on:
+    postgres:
+      condition: service_healthy
+
+services:
+  postgres:
+    image: postgres:13
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - postgres-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 10s
+      retries: 5
+      start_period: 5s
+    restart: always
+
+  airflow-init:
+    <<: *airflow-common
+    # Run as root only to fix the logs-volume ownership, then hand off to the
+    # image /entrypoint which gosu-drops to the airflow user (uid 50000) with the
+    # correct PYTHONPATH so `airflow` is importable.
+    entrypoint: /bin/bash
+    user: "0:0"
+    command:
+      - -c
+      - |
+        mkdir -p /opt/airflow/logs
+        chown -R 50000:0 /opt/airflow/logs
+        exec /entrypoint bash -c "airflow db migrate && { airflow users create --username admin --password admin --firstname admin --lastname admin --role Admin --email admin@example.com || true; }"
+    restart: on-failure
+
+  airflow-scheduler:
+    <<: *airflow-common
+    command: scheduler
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8974/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+
+  airflow-webserver:
+    <<: *airflow-common
+    command: webserver
+    ports:
+      - "8088:8080"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+
+volumes:
+  postgres-db:
+  airflow-logs:

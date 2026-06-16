@@ -1,0 +1,31 @@
+.git
+.env
+.DS_Store # macOS specific ignore
+airflow_settings.yaml
+__pycache__/
+astro
+.venv
+airflow-webserver.pid
+webserver_config.py
+airflow.cfg
+airflow.db
+
+# GCP service account key — NEVER commit secrets
+include/gcp/
+*.json.key
+service_account.json
+*-service-account*.json
+
+# Large dataset — re-download from Kaggle (see README)
+include/dataset/online_retail.csv
+
+# Local state / build artifacts
+include/metabase-data/
+include/dbt/target/
+include/dbt/dbt_packages/
+include/dbt/logs/
+.astro/
+logs/
+
+# Claude Code local state
+.claude/

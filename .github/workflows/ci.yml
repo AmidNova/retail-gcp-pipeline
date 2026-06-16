@@ -1,0 +1,53 @@
+name: dbt CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  dbt-checks:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dbt
+        run: |
+          pip install dbt-bigquery==1.8.2
+
+      - name: Write dbt profiles (CI uses a mock target)
+        run: |
+          mkdir -p ~/.dbt
+          cat > ~/.dbt/profiles.yml << 'PROFILE'
+          retail:
+            target: ci
+            outputs:
+              ci:
+                type: bigquery
+                method: service-account
+                project: "{{ env_var('GCP_PROJECT_ID') }}"
+                dataset: retail_ci
+                keyfile_json: "{{ env_var('GCP_KEYFILE_JSON') }}"
+                location: EU
+                threads: 4
+          PROFILE
+
+      - name: dbt compile (syntax check — no GCP needed)
+        working-directory: include/dbt
+        run: dbt compile --profiles-dir ~/.dbt --project-dir .
+
+      - name: dbt test (runs against GCP on main only)
+        if: github.ref == 'refs/heads/main'
+        working-directory: include/dbt
+        env:
+          GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          GCP_KEYFILE_JSON: ${{ secrets.GCP_KEYFILE_JSON }}
+        run: dbt test --profiles-dir ~/.dbt --project-dir .

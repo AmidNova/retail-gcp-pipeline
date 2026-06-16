@@ -1,0 +1,12 @@
+# Apache Airflow 2.7.3 (python3.11) base image — providers below are NOT preinstalled.
+
+apache-airflow-providers-google==10.7.0
+
+# Cosmos runs dbt; dbt itself lives in /opt/airflow/dbt_venv (see Dockerfile),
+# so install Cosmos WITHOUT the dbt-bigquery extra to keep the Airflow env clean.
+astronomer-cosmos==1.2.5
+
+# astro-sdk-python powers aql.load_file (GCS -> BigQuery) in the DAG.
+astro-sdk-python[google]==1.7.0
+
+protobuf
