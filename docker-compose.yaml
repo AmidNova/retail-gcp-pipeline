@@ -8,6 +8,10 @@ x-airflow-common: &airflow-common
     AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
     AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
+    # Cosmos LoadMode.DBT_LS renders each dbt group (dbt ls + deps) at parse time;
+    # with 3 groups this exceeds the 30s default, so raise the import timeouts.
+    AIRFLOW__CORE__DAGBAG_IMPORT_TIMEOUT: '200'
+    AIRFLOW__CORE__DAG_FILE_PROCESSOR_TIMEOUT: '200'
     AIRFLOW__CORE__FERNET_KEY: ''
     AIRFLOW__WEBSERVER__EXPOSE_CONFIG: 'true'
     AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: 'true'
