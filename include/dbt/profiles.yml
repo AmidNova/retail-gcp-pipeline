@@ -1,14 +1,37 @@
-# profiles.yml
-
+# All environment-specific values come from env vars (see .env.example).
+# Auth: a service-account key file when GCP_KEYFILE_PATH is set (Airflow),
+# otherwise Application Default Credentials (local gcloud login, or
+# Workload Identity Federation in GitHub Actions).
 retail:
- target: dev
- outputs:
-  dev:
-    type: bigquery
-    method: service-account
-    keyfile: /usr/local/airflow/include/gcp/service_account.json
-    project: retail-pipeline-317c24
-    dataset: retail
-    threads: 1
-    timeout_seconds: 600
-    location: US
+  target: "{{ env_var('DBT_TARGET', 'dev') }}"
+  outputs:
+    dev:
+      type: bigquery
+      method: "{{ 'service-account' if env_var('GCP_KEYFILE_PATH', '') else 'oauth' }}"
+      keyfile: "{{ env_var('GCP_KEYFILE_PATH', '') }}"
+      project: "{{ env_var('GCP_PROJECT_ID') }}"
+      dataset: "{{ env_var('DBT_DEV_DATASET', 'retail_dev') }}"
+      location: "{{ env_var('BQ_LOCATION', 'US') }}"
+      threads: 4
+      job_execution_timeout_seconds: 600
+      maximum_bytes_billed: 2000000000  # 2 GB guardrail per query
+
+    ci:
+      type: bigquery
+      method: oauth
+      project: "{{ env_var('GCP_PROJECT_ID') }}"
+      dataset: "{{ env_var('DBT_CI_DATASET', 'retail_ci') }}"
+      location: "{{ env_var('BQ_LOCATION', 'US') }}"
+      threads: 4
+      job_execution_timeout_seconds: 600
+      maximum_bytes_billed: 2000000000
+
+    prod:
+      type: bigquery
+      method: "{{ 'service-account' if env_var('GCP_KEYFILE_PATH', '') else 'oauth' }}"
+      keyfile: "{{ env_var('GCP_KEYFILE_PATH', '') }}"
+      project: "{{ env_var('GCP_PROJECT_ID') }}"
+      dataset: retail
+      location: "{{ env_var('BQ_LOCATION', 'US') }}"
+      threads: 4
+      job_execution_timeout_seconds: 600
