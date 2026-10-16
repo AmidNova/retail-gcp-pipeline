@@ -1,53 +1,144 @@
-name: dbt CI
+name: CI
 
 on:
-  push:
-    branches: [main, develop]
   pull_request:
-    branches: [main]
+    branches: [master]
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+  BQ_LOCATION: US
+  DBT_PROFILES_DIR: .
+  PYTHON_VERSION: "3.12"
 
 jobs:
-  dbt-checks:
+  checks:
+    name: Static checks (no credentials)
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
 
-      - name: Install dbt
-        run: |
-          pip install dbt-bigquery==1.8.2
+      - name: Install tooling
+        run: pip install -r requirements-dev.txt
 
-      - name: Write dbt profiles (CI uses a mock target)
-        run: |
-          mkdir -p ~/.dbt
-          cat > ~/.dbt/profiles.yml << 'PROFILE'
-          retail:
-            target: ci
-            outputs:
-              ci:
-                type: bigquery
-                method: service-account
-                project: "{{ env_var('GCP_PROJECT_ID') }}"
-                dataset: retail_ci
-                keyfile_json: "{{ env_var('GCP_KEYFILE_JSON') }}"
-                location: EU
-                threads: 4
-          PROFILE
+      - name: Lint (ruff, yaml, whitespace, secrets)
+        # sqlfluff compiles against BigQuery: it runs in the dbt-build job.
+        run: SKIP=sqlfluff-lint pre-commit run --all-files --show-diff-on-failure
 
-      - name: dbt compile (syntax check — no GCP needed)
+      - name: dbt deps + parse
         working-directory: include/dbt
-        run: dbt compile --profiles-dir ~/.dbt --project-dir .
+        run: |
+          dbt deps
+          dbt parse --target prod
 
-      - name: dbt test (runs against GCP on main only)
-        if: github.ref == 'refs/heads/main'
+      - name: Publish the prod manifest (state for slim CI)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        uses: actions/upload-artifact@v4
+        with:
+          name: dbt-prod-manifest
+          path: include/dbt/target/manifest.json
+          retention-days: 90
+
+  dag-tests:
+    name: DAG integrity (Airflow image)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the Airflow image
+        run: docker build -t retail-airflow .
+
+      - name: pytest inside the image
+        run: |
+          docker run --rm \
+            -v "$PWD/dags:/opt/airflow/dags:ro" \
+            -v "$PWD/include:/opt/airflow/include:ro" \
+            -v "$PWD/tests:/opt/airflow/tests:ro" \
+            -e PYTHONPATH=/opt/airflow -e GCP_PROJECT_ID=ci -e GCS_BUCKET=ci \
+            -e AIRFLOW__CORE__LOAD_EXAMPLES=false -e AIRFLOW__CORE__DAGBAG_IMPORT_TIMEOUT=300 \
+            --entrypoint bash retail-airflow \
+            -c "pip install --user -q pytest==8.3.5 && airflow db migrate >/dev/null && cd /opt/airflow && python -m pytest tests -v -p no:cacheprovider"
+
+  dbt-build:
+    name: dbt build on BigQuery (slim CI)
+    if: github.event_name == 'pull_request'
+    needs: checks
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write  # OIDC token for Workload Identity Federation
+      actions: read    # download the prod manifest from the last master run
+    env:
+      DBT_TARGET: ci
+      DBT_CI_DATASET: retail_ci_pr${{ github.event.pull_request.number }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to GCP (keyless, Workload Identity Federation)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_CI_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Install tooling
+        run: pip install -r requirements-dev.txt
+
+      - name: dbt deps
         working-directory: include/dbt
+        run: dbt deps
+
+      - name: sqlfluff lint (dbt templater)
+        run: sqlfluff lint include/dbt/models include/dbt/tests
+
+      - name: Download the prod manifest
         env:
-          GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-          GCP_KEYFILE_JSON: ${{ secrets.GCP_KEYFILE_JSON }}
-        run: dbt test --profiles-dir ~/.dbt --project-dir .
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          run_id=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci.yml --branch master \
+            --event push --status success --limit 1 --json databaseId --jq '.[0].databaseId')
+          if [ -n "$run_id" ] && gh run download "$run_id" --repo "$GITHUB_REPOSITORY" \
+              --name dbt-prod-manifest --dir include/dbt/prod-state; then
+            echo "Using prod manifest from run $run_id"
+          else
+            echo "No prod manifest available: full build"
+          fi
+
+      - name: dbt build (modified models and their children only)
+        working-directory: include/dbt
+        run: |
+          if [ -f prod-state/manifest.json ]; then
+            dbt build --select state:modified+ --defer --state prod-state
+          else
+            dbt build
+          fi
+
+      - name: Drop the PR datasets
+        if: always()
+        run: |
+          for dataset in $(bq ls --project_id "$GCP_PROJECT_ID" --format=json \
+              | jq -r '.[].datasetReference.datasetId' | grep "^${DBT_CI_DATASET}" || true); do
+            bq rm -r -f --dataset "${GCP_PROJECT_ID}:${dataset}"
+          done
