@@ -138,7 +138,11 @@ jobs:
       - name: Drop the PR datasets
         if: always()
         run: |
-          for dataset in $(bq ls --project_id "$GCP_PROJECT_ID" --format=json \
-              | jq -r '.[].datasetReference.datasetId' | grep "^${DBT_CI_DATASET}" || true); do
+          set -euo pipefail
+          touch ~/.bigqueryrc  # skip bq's first-run banner, which breaks the JSON output
+          datasets=$(bq ls --project_id "$GCP_PROJECT_ID" --format=json \
+            | jq -r '.[].datasetReference.datasetId' | { grep "^${DBT_CI_DATASET}_" || true; })
+          for dataset in $datasets; do
             bq rm -r -f --dataset "${GCP_PROJECT_ID}:${dataset}"
+            echo "Dropped ${dataset}"
           done
