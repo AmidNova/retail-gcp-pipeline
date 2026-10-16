@@ -1,0 +1,129 @@
+version: 2
+
+# Contracts are enforced on this layer (dbt_project.yml): column names and
+# types are checked at build time, so a breaking change fails the build
+# instead of silently breaking Metabase.
+models:
+  - name: dim_customers
+    description: One row per identified customer with at least one in-scope sale.
+    columns:
+      - name: customer_id
+        description: Customer number (natural key).
+        data_type: string
+        constraints: [{type: not_null}]
+        data_tests: [unique]
+      - name: country_name
+        description: Country of the customer's most recent purchase.
+        data_type: string
+        data_tests: [not_null]
+      - name: country_iso_code
+        description: >
+          ISO alpha-2 code. Null for labels that are not ISO countries in the
+          source ("EIRE", "Channel Islands", "European Community", "Unspecified"...).
+        data_type: string
+        data_tests:
+          - not_null:
+              config:
+                severity: warn
+      - name: first_purchase_at
+        description: Timestamp of the first in-scope purchase.
+        data_type: timestamp
+      - name: last_purchase_at
+        description: Timestamp of the latest in-scope purchase.
+        data_type: timestamp
+
+  - name: dim_products
+    description: One row per (stock_code, description, unit_price) sold.
+    columns:
+      - name: product_key
+        description: Surrogate key (hash) of stock_code, description and unit_price.
+        data_type: string
+        constraints: [{type: not_null}]
+        data_tests: [unique]
+      - name: stock_code
+        description: Product code.
+        data_type: string
+      - name: description
+        description: Product label.
+        data_type: string
+      - name: unit_price
+        description: Unit price in GBP.
+        data_type: numeric
+
+  - name: dim_dates
+    description: Gap-free calendar, one row per day between the calendar_* vars.
+    columns:
+      - name: date_day
+        description: Calendar date (natural key).
+        data_type: date
+        constraints: [{type: not_null}]
+        data_tests: [unique]
+      - name: calendar_year
+        description: Year number.
+        data_type: int64
+      - name: calendar_quarter
+        description: Quarter number (1-4).
+        data_type: int64
+      - name: calendar_month
+        description: Month number (1-12).
+        data_type: int64
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+                quote: false
+      - name: day_of_month
+        description: Day of the month (1-31).
+        data_type: int64
+      - name: month_start_date
+        description: First day of the month (monthly grouping key).
+        data_type: date
+
+  - name: fct_invoice_lines
+    description: >
+      One row per in-scope sales line. Revenue = sum(line_amount). Excludes
+      returns, zero-price lines and guest checkouts (see the intermediate model).
+    columns:
+      - name: invoice_id
+        description: Invoice number. Several lines share one invoice.
+        data_type: string
+        constraints: [{type: not_null}]
+      - name: invoice_date
+        description: Invoice date, foreign key to dim_dates.
+        data_type: date
+        constraints: [{type: not_null}]
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_dates')
+                field: date_day
+      - name: invoiced_at
+        description: Invoice timestamp.
+        data_type: timestamp
+      - name: customer_id
+        description: Foreign key to dim_customers.
+        data_type: string
+        constraints: [{type: not_null}]
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_customers')
+                field: customer_id
+      - name: product_key
+        description: Foreign key to dim_products.
+        data_type: string
+        constraints: [{type: not_null}]
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_products')
+                field: product_key
+      - name: quantity
+        description: Units sold (> 0).
+        data_type: int64
+      - name: unit_price
+        description: Unit price in GBP (> 0).
+        data_type: numeric
+      - name: line_amount
+        description: Revenue of the line in GBP (quantity * unit_price).
+        data_type: numeric

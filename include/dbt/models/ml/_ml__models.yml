@@ -1,0 +1,52 @@
+version: 2
+
+# Feature tables only. Model training and scoring (ARIMA_PLUS, KMEANS) run as
+# BigQuery ML statements in the Airflow DAG: they are BigQuery-specific and
+# write to the same dataset with a bqml_ prefix.
+models:
+  - name: ml_daily_revenue
+    description: >
+      Gap-free daily revenue between the first and last sale date (days without
+      sales = 0). Input of the bqml_revenue_forecast ARIMA_PLUS model.
+    columns:
+      - name: date_day
+        description: Calendar day.
+        data_tests: [unique, not_null]
+      - name: revenue
+        description: Revenue of the day in GBP (0 when the shop did not trade).
+        data_tests: [not_null]
+
+  - name: ml_customer_rfm
+    description: >
+      Recency (days since last purchase), Frequency (distinct invoices) and
+      Monetary (revenue) per customer. Input of the bqml_customer_segments
+      KMeans model.
+    columns:
+      - name: customer_id
+        description: Customer number.
+        data_tests:
+          - unique
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_customers')
+                field: customer_id
+      - name: recency_days
+        description: Days between the last purchase and the reference date (>= 1).
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 1
+      - name: frequency
+        description: Number of distinct invoices.
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 1
+      - name: monetary
+        description: Total revenue in GBP.
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                inclusive: false
