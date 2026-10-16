@@ -1,83 +1,56 @@
-"""Test the validity of all DAGs. This test ensures that all Dags have tags, retries set to two, and no import errors. Feel free to add and remove tests."""
+"""DAG integrity tests, run inside the Airflow image (see `make test-dags`).
 
-import os
-import logging
-from contextlib import contextmanager
+The DagBag is built once per module: parsing renders the Cosmos task groups
+with `dbt ls`, which takes several seconds per group.
+"""
+
 import pytest
 from airflow.models import DagBag
 
-
-@contextmanager
-def suppress_logging(namespace):
-    logger = logging.getLogger(namespace)
-    old_value = logger.disabled
-    logger.disabled = True
-    try:
-        yield
-    finally:
-        logger.disabled = old_value
+DAG_ID = "retail"
+MIN_RETRIES = 2
 
 
-def get_import_errors():
-    """
-    Generate a tuple for import errors in the dag bag
-    """
-    with suppress_logging("airflow"):
-        dag_bag = DagBag(include_examples=False)
-
-        def strip_path_prefix(path):
-            return os.path.relpath(path, os.environ.get("AIRFLOW_HOME"))
-
-        # prepend "(None,None)" to ensure that a test object is always created even if it's a no op.
-        return [(None, None)] + [
-            (strip_path_prefix(k), v.strip()) for k, v in dag_bag.import_errors.items()
-        ]
+@pytest.fixture(scope="module")
+def dag_bag() -> DagBag:
+    return DagBag(include_examples=False)
 
 
-def get_dags():
-    """
-    Generate a tuple of dag_id, <DAG objects> in the DagBag
-    """
-    with suppress_logging("airflow"):
-        dag_bag = DagBag(include_examples=False)
-
-    def strip_path_prefix(path):
-        return os.path.relpath(path, os.environ.get("AIRFLOW_HOME"))
-
-    return [(k, v, strip_path_prefix(v.fileloc)) for k, v in dag_bag.dags.items()]
+@pytest.fixture(scope="module")
+def retail_dag(dag_bag):
+    return dag_bag.get_dag(DAG_ID)
 
 
-@pytest.mark.parametrize(
-    "rel_path,rv", get_import_errors(), ids=[x[0] for x in get_import_errors()]
-)
-def test_file_imports(rel_path, rv):
-    """Test for import errors on a file"""
-    if rel_path and rv:
-        raise Exception(f"{rel_path} failed to import with message \n {rv}")
+def test_no_import_errors(dag_bag):
+    assert dag_bag.import_errors == {}
 
 
-APPROVED_TAGS = {}
+def test_retail_dag_is_loaded(retail_dag):
+    assert retail_dag is not None
 
 
-@pytest.mark.parametrize(
-    "dag_id,dag,fileloc", get_dags(), ids=[x[2] for x in get_dags()]
-)
-def test_dag_tags(dag_id, dag, fileloc):
-    """
-    test if a DAG is tagged and if those TAGs are in the approved list
-    """
-    assert dag.tags, f"{dag_id} in {fileloc} has no tags"
-    if APPROVED_TAGS:
-        assert not set(dag.tags) - APPROVED_TAGS
+def test_every_dag_has_tags(dag_bag):
+    for dag_id, dag in dag_bag.dags.items():
+        assert dag.tags, f"{dag_id} has no tags"
 
 
-@pytest.mark.parametrize(
-    "dag_id,dag, fileloc", get_dags(), ids=[x[2] for x in get_dags()]
-)
-def test_dag_retries(dag_id, dag, fileloc):
-    """
-    test if a DAG has retries set
-    """
-    assert (
-        dag.default_args.get("retries", None) >= 2
-    ), f"{dag_id} in {fileloc} does not have retries not set to 2."
+def test_tasks_retry(retail_dag):
+    for task in retail_dag.tasks:
+        assert task.retries >= MIN_RETRIES, f"{task.task_id} retries={task.retries}"
+
+
+def test_soda_gate_runs_between_load_and_dbt(retail_dag):
+    check_raw = retail_dag.get_task("check_raw")
+    assert "load_raw" in check_raw.upstream_task_ids
+    assert any(task_id.startswith("transform.") for task_id in check_raw.downstream_task_ids)
+
+
+def test_dbt_layers_are_rendered(retail_dag):
+    task_ids = set(retail_dag.task_ids)
+    for model in ("stg_retail__invoice_lines", "fct_invoice_lines", "rpt_monthly_revenue", "ml_customer_rfm"):
+        assert any(model in task_id for task_id in task_ids), f"no task for {model}"
+
+
+def test_ml_training_waits_for_features(retail_dag):
+    train = retail_dag.get_task("train_revenue_forecast")
+    assert any(task_id.startswith("ml_features.") for task_id in train.upstream_task_ids)
