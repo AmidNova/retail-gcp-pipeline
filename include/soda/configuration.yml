@@ -1,13 +1,29 @@
+# One Soda data source per BigQuery dataset (a data source is bound to one dataset).
+# ${VAR} values come from the container environment (see .env.example).
 
-
-data_source retail:
+data_source retail_raw:
   type: bigquery
   connection:
-    account_info_json_path: /usr/local/airflow/include/gcp/service_account.json
+    account_info_json_path: ${GCP_KEYFILE_PATH}
     auth_scopes:
-    - https://www.googleapis.com/auth/bigquery
-    - https://www.googleapis.com/auth/cloud-platform
-    - https://www.googleapis.com/auth/drive
-    project_id: 'retail-pipeline-317c24'
-    dataset: retail
+      - https://www.googleapis.com/auth/bigquery
+    project_id: ${GCP_PROJECT_ID}
+    dataset: ${BQ_RAW_DATASET}
 
+data_source retail_marts:
+  type: bigquery
+  connection:
+    account_info_json_path: ${GCP_KEYFILE_PATH}
+    auth_scopes:
+      - https://www.googleapis.com/auth/bigquery
+    project_id: ${GCP_PROJECT_ID}
+    dataset: retail_marts
+
+data_source retail_reports:
+  type: bigquery
+  connection:
+    account_info_json_path: ${GCP_KEYFILE_PATH}
+    auth_scopes:
+      - https://www.googleapis.com/auth/bigquery
+    project_id: ${GCP_PROJECT_ID}
+    dataset: retail_reports

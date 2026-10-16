@@ -1,0 +1,19 @@
+# Gate between loading and transforming: stop the run before dbt if the file
+# that landed does not look like the expected export.
+checks for online_retail:
+  - schema:
+      fail:
+        when required column missing:
+          [Invoice, StockCode, Description, Quantity, InvoiceDate, Price, Customer_id, Country]
+        when wrong column type:
+          Invoice: string
+          StockCode: string
+          Description: string
+          Quantity: int64
+          InvoiceDate: string
+          Price: numeric
+          Customer_id: float64
+          Country: string
+  - row_count > 0
+  - missing_count(Invoice) = 0
+  - missing_count(InvoiceDate) = 0
