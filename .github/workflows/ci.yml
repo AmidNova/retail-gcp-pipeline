@@ -95,8 +95,6 @@ jobs:
           workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
           service_account: ${{ vars.GCP_CI_SERVICE_ACCOUNT }}
 
-      - uses: google-github-actions/setup-gcloud@v2
-
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -137,12 +135,15 @@ jobs:
 
       - name: Drop the PR datasets
         if: always()
+        # google-cloud-bigquery comes with dbt-bigquery and uses the WIF credentials.
+        shell: python
         run: |
-          set -euo pipefail
-          touch ~/.bigqueryrc  # skip bq's first-run banner, which breaks the JSON output
-          datasets=$(bq ls --project_id "$GCP_PROJECT_ID" --format=json \
-            | jq -r '.[].datasetReference.datasetId' | { grep "^${DBT_CI_DATASET}_" || true; })
-          for dataset in $datasets; do
-            bq rm -r -f --dataset "${GCP_PROJECT_ID}:${dataset}"
-            echo "Dropped ${dataset}"
-          done
+          import os
+          from google.cloud import bigquery
+
+          client = bigquery.Client(project=os.environ["GCP_PROJECT_ID"])
+          prefix = os.environ["DBT_CI_DATASET"] + "_"
+          for dataset in client.list_datasets():
+              if dataset.dataset_id.startswith(prefix):
+                  client.delete_dataset(dataset.reference, delete_contents=True)
+                  print(f"Dropped {dataset.dataset_id}")
