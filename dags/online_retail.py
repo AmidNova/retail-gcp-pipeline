@@ -1,7 +1,8 @@
-"""Retail ELT pipeline.
+"""Retail ELT pipeline, weekly.
 
 CSV -> GCS -> BigQuery raw -> Soda gate -> dbt (staging, intermediate, marts)
--> Soda -> dbt reports -> Soda -> dbt ML features -> BigQuery ML.
+-> Soda -> dbt reports -> Soda -> dbt ML features -> BigQuery ML
+-> pipeline health row (always runs, even after a failure).
 
 Every environment-specific value comes from env vars (see .env.example).
 """
@@ -10,7 +11,9 @@ import os
 from datetime import datetime, timedelta
 
 from airflow.decorators import dag, task
+from airflow.exceptions import AirflowFailException
 from airflow.models.baseoperator import chain
+from airflow.utils.trigger_rule import TriggerRule
 from airflow.providers.google.cloud.operators.bigquery import (
     BigQueryCreateEmptyDatasetOperator,
     BigQueryInsertJobOperator,
@@ -30,6 +33,12 @@ from include.dbt.cosmos_config import (
     DBT_PROFILE_CONFIG,
     DBT_PROJECT_CONFIG,
 )
+from include.monitoring.alerting import notify_dag_failure
+from include.monitoring.pipeline_health import (
+    create_runs_table_sql,
+    insert_run_sql,
+    summarize_task_states,
+)
 
 GCP_CONN_ID = "gcp"
 PROJECT_ID = os.environ["GCP_PROJECT_ID"]
@@ -38,6 +47,10 @@ BQ_LOCATION = os.environ.get("BQ_LOCATION", "US")
 RAW_DATASET = os.environ.get("BQ_RAW_DATASET", "retail_raw")
 # dbt prod target writes <dataset>_<layer>: see profiles.yml / dbt_project.yml
 ML_DATASET = "retail_ml"
+
+RAW_TABLE = f"{PROJECT_ID}.{RAW_DATASET}.online_retail"
+FCT_TABLE = f"{PROJECT_ID}.retail_marts.fct_invoice_lines"
+SODA_TASK_IDS = ["check_raw", "check_marts", "check_reports"]
 
 LOCAL_CSV = str(AIRFLOW_HOME / "include" / "dataset" / "online_retail.csv")
 GCS_OBJECT = "raw/online_retail.csv"
@@ -75,6 +88,9 @@ def dbt_group(group_id: str, paths: list[str]) -> DbtTaskGroup:
         render_config=RenderConfig(
             load_method=LoadMode.DBT_LS,
             select=[f"path:{path}" for path in paths],
+            # A test with several parents (relationships, reconciliation) gets
+            # its own task, run once all its parents are built.
+            should_detach_multiple_parents_tests=True,
         ),
     )
 
@@ -83,18 +99,36 @@ def ml_table(name: str) -> str:
     return f"`{PROJECT_ID}.{ML_DATASET}.{name}`"
 
 
+def table_row_count(client, table_id: str) -> int | None:
+    """Row count from table metadata (free, no query). None if the table is missing."""
+    from google.api_core.exceptions import NotFound
+
+    try:
+        return client.get_table(table_id).num_rows
+    except NotFound:
+        return None
+
+
 @dag(
-    start_date=datetime(2023, 1, 1),
-    schedule=None,
+    start_date=datetime(2026, 10, 1),
+    schedule="@weekly",
     catchup=False,
+    # Runs rewrite the same tables: never two at once.
+    max_active_runs=1,
     tags=["retail"],
     default_args={
         "owner": "data-platform",
         "retries": 2,
         "retry_delay": timedelta(minutes=2),
     },
+    # One alert per failed run, not one per task and per retry.
+    on_failure_callback=notify_dag_failure,
 )
 def retail():
+    ensure_monitoring_table = bigquery_job(
+        "ensure_monitoring_table", create_runs_table_sql(PROJECT_ID, BQ_LOCATION)
+    )
+
     create_raw_dataset = BigQueryCreateEmptyDatasetOperator(
         task_id="create_raw_dataset",
         gcp_conn_id=GCP_CONN_ID,
@@ -215,7 +249,55 @@ def retail():
         """,
     )
 
+    @task(trigger_rule=TriggerRule.ALL_DONE)
+    def record_pipeline_health(**context):
+        """Write one row to retail_monitoring.pipeline_runs, then fail the run if
+        any task failed (this task is the only leaf, so it decides the run state)."""
+        from airflow.providers.google.cloud.hooks.bigquery import BigQueryHook
+        from google.cloud import bigquery
+
+        dag_run, ti = context["dag_run"], context["ti"]
+        summary = summarize_task_states(
+            dag_run.get_task_instances(), exclude_task_id=ti.task_id
+        )
+        soda_results = ti.xcom_pull(task_ids=SODA_TASK_IDS) or []
+        soda_checks_warned = sum(result["warned"] for result in soda_results if result)
+
+        client = BigQueryHook(gcp_conn_id=GCP_CONN_ID, location=BQ_LOCATION).get_client(
+            project_id=PROJECT_ID
+        )
+        param = bigquery.ScalarQueryParameter
+        parameters = [
+            param("dag_run_id", "STRING", dag_run.run_id),
+            param("logical_date", "TIMESTAMP", dag_run.logical_date),
+            param("run_started_at", "TIMESTAMP", dag_run.start_date),
+            param("state", "STRING", "failed" if summary.run_failed else "success"),
+            param("tasks_total", "INT64", summary.tasks_total),
+            param("tasks_failed", "INT64", summary.tasks_failed),
+            bigquery.ArrayQueryParameter(
+                "failed_task_ids", "STRING", list(summary.failed_task_ids)
+            ),
+            param("dbt_test_tasks_passed", "INT64", summary.dbt_test_tasks_passed),
+            param("dbt_test_tasks_failed", "INT64", summary.dbt_test_tasks_failed),
+            param("soda_scans_passed", "INT64", summary.soda_scans_passed),
+            param("soda_scans_failed", "INT64", summary.soda_scans_failed),
+            param("soda_checks_warned", "INT64", soda_checks_warned),
+            param("raw_rows", "INT64", table_row_count(client, RAW_TABLE)),
+            param("fct_rows", "INT64", table_row_count(client, FCT_TABLE)),
+        ]
+        client.query(
+            insert_run_sql(PROJECT_ID),
+            job_config=bigquery.QueryJobConfig(query_parameters=parameters),
+            location=BQ_LOCATION,
+        ).result()
+
+        if summary.run_failed:
+            raise AirflowFailException(
+                f"Failed tasks: {', '.join(summary.failed_task_ids)}"
+            )
+
     chain(
+        ensure_monitoring_table,
         create_raw_dataset,
         upload_csv_to_gcs,
         load_raw,
@@ -229,6 +311,7 @@ def retail():
     )
     train_revenue_forecast >> forecast_revenue
     train_customer_segments >> score_customer_segments
+    [forecast_revenue, score_customer_segments] >> record_pipeline_health()
 
 
 retail()

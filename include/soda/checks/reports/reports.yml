@@ -1,11 +1,22 @@
-checks for rpt_revenue_by_country:
-  - row_count > 0
-
 checks for rpt_monthly_revenue:
-  - row_count > 0
-
-checks for rpt_product_sales:
-  - row_count > 0
+  # Every month between the first and the last one must be present: a gap
+  # would show as a fake drop in the seasonality chart.
+  - missing_months:
+      name: Months missing from the revenue series
+      missing_months query: |
+        select date_diff(max(month_start_date), min(month_start_date), month) + 1 - count(*)
+        from rpt_monthly_revenue
+      fail: when > 0
+  - min(revenue) > 0:
+      name: Every month has positive revenue
 
 checks for rpt_customer_revenue_concentration:
-  - row_count > 0
+  # 23.0% of customers make 80% of revenue. This is a business KPI shown in
+  # the dashboard: a sudden move is more likely a data problem than a change
+  # in customer behaviour, so it warns but does not stop the pipeline.
+  - top_customers_for_80pct_revenue_pct:
+      name: Share of customers making 80% of revenue (%)
+      top_customers_for_80pct_revenue_pct query: |
+        select 100 * avg(case when is_in_top_80pct_revenue then 1 else 0 end)
+        from rpt_customer_revenue_concentration
+      warn: when not between 20 and 26

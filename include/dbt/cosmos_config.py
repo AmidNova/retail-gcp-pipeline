@@ -14,7 +14,10 @@ DBT_PROJECT_CONFIG = ProjectConfig(
     # Keep the dbt venv isolated: when Airflow runs as root (init container),
     # the image puts Airflow's site-packages on PYTHONPATH, and dbt would then
     # import Airflow's older protobuf.
-    env_vars={"PYTHONPATH": ""},
+    # buildable: a test is selected with a layer only when all its parents are
+    # built by that layer or upstream, so cross-layer tests (reports vs fact,
+    # ML features vs dimensions) run in the downstream group, not before it.
+    env_vars={"PYTHONPATH": "", "DBT_INDIRECT_SELECTION": "buildable"},
 )
 
 # profiles.yml reads everything else (project, key path, location) from env vars.

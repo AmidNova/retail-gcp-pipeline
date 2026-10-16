@@ -46,9 +46,18 @@ fi
 if ! gcloud iam service-accounts describe "$SA_EMAIL" >/dev/null 2>&1; then
   gcloud iam service-accounts create "$SA_NAME" --display-name="Airflow retail pipeline"
 fi
-for role in roles/bigquery.admin roles/storage.admin; do
+# Least privilege: run jobs and write tables/models in the project's datasets
+# (no IAM or dataset-policy admin), and write objects in this bucket only.
+for role in roles/bigquery.jobUser roles/bigquery.dataEditor; do
   gcloud projects add-iam-policy-binding "$PROJECT_ID" \
     --member="serviceAccount:$SA_EMAIL" --role="$role" --condition=None >/dev/null
+done
+gcloud storage buckets add-iam-policy-binding "gs://$BUCKET" \
+  --member="serviceAccount:$SA_EMAIL" --role=roles/storage.objectAdmin >/dev/null
+# Remove the broad roles granted by earlier versions of this script.
+for role in roles/bigquery.admin roles/storage.admin; do
+  gcloud projects remove-iam-policy-binding "$PROJECT_ID" \
+    --member="serviceAccount:$SA_EMAIL" --role="$role" --condition=None >/dev/null 2>&1 || true
 done
 
 # ---- 6. Key ----------------------------------------------------------------

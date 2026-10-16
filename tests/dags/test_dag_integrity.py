@@ -58,6 +58,19 @@ def test_dbt_layers_are_rendered(retail_dag):
         assert any(model in task_id for task_id in task_ids), f"no task for {model}"
 
 
+def test_health_is_recorded_last_even_after_failures(retail_dag):
+    health = retail_dag.get_task("record_pipeline_health")
+    assert health.trigger_rule == "all_done"
+    assert retail_dag.leaves == [health]
+
+
+def test_cross_layer_tests_run_after_their_parents(retail_dag):
+    reconcile = next(
+        t for t in retail_dag.tasks if "assert_reports_reconcile_with_fact" in t.task_id
+    )
+    assert reconcile.task_id.startswith("report.")
+
+
 def test_ml_training_waits_for_features(retail_dag):
     train = retail_dag.get_task("train_revenue_forecast")
     assert any(

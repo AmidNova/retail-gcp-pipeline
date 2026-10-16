@@ -10,6 +10,10 @@ test-paths: ["tests"]
 macro-paths: ["macros"]
 clean-targets: ["target", "dbt_packages"]
 
+flags:
+  # Source freshness from table metadata, batched (no load-timestamp column).
+  bigquery_use_batch_source_freshness: true
+
 vars:
   # Calendar bounds for dim_dates: covers the dataset (2009-12 -> 2011-12)
   # plus the 30-day revenue forecast horizon.

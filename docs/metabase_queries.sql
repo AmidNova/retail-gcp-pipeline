@@ -1,145 +1,131 @@
 -- =====================================================================
--- Metabase viz query pack — Retail GCP Pipeline
+-- Metabase query pack — Retail GCP Pipeline
 -- Paste each block into a new Metabase "SQL question" (BigQuery database).
--- Each block notes the recommended visualization + settings.
--- Project: retail-pipeline-317c24   Dataset: retail
+-- Tables come from the prod dbt target (retail_<layer> datasets), the
+-- BigQuery ML jobs (retail_ml.bqml_*) and the monitoring table.
+-- Replace your-project with your GCP project id.
 -- =====================================================================
 
 
 -- ---------------------------------------------------------------------
--- 1. REVENUE FORECAST — history + 30-day ARIMA_PLUS prediction
---    Viz: Line chart
---    X = jour, Y = ca  (add ca_prevu, borne_basse, borne_haute as extra series)
---    Color the forecast series differently; show the confidence band.
---    History limited to the last 120 days so the 30-day forecast stays readable.
+-- 0. PIPELINE HEALTH — one row per run of the retail DAG
+--    Viz: Table (conditional formatting on state, tasks_failed)
+-- ---------------------------------------------------------------------
+SELECT
+  recorded_at,
+  dag_run_id,
+  state,
+  tasks_failed,
+  ARRAY_TO_STRING(failed_task_ids, ', ') AS failed_tasks,
+  dbt_test_tasks_passed,
+  dbt_test_tasks_failed,
+  soda_scans_passed,
+  soda_scans_failed,
+  soda_checks_warned,
+  raw_rows,
+  fct_rows,
+  TIMESTAMP_DIFF(recorded_at, run_started_at, MINUTE) AS duration_min
+FROM `your-project.retail_monitoring.pipeline_runs`
+ORDER BY recorded_at DESC
+LIMIT 50;
+
+
+-- 0b. LAST RUN — single-value cards (state, rows loaded, hours since last success)
+SELECT
+  (SELECT state FROM `your-project.retail_monitoring.pipeline_runs`
+   ORDER BY recorded_at DESC LIMIT 1) AS last_run_state,
+  (SELECT raw_rows FROM `your-project.retail_monitoring.pipeline_runs`
+   ORDER BY recorded_at DESC LIMIT 1) AS last_run_raw_rows,
+  TIMESTAMP_DIFF(
+    CURRENT_TIMESTAMP(),
+    (SELECT MAX(recorded_at) FROM `your-project.retail_monitoring.pipeline_runs`
+     WHERE state = 'success'),
+    HOUR) AS hours_since_last_success;
+
+
+-- ---------------------------------------------------------------------
+-- 1. REVENUE FORECAST — last 120 days of history + 30-day ARIMA_PLUS forecast
+--    Viz: Line chart, X = date_day; series revenue, forecast_revenue,
+--    lower_bound, upper_bound (bounds dashed)
 -- ---------------------------------------------------------------------
 WITH history AS (
-  SELECT DATE(jour) AS jour, ca AS ca, NULL AS ca_prevu, NULL AS borne_basse, NULL AS borne_haute
-  FROM `retail-pipeline-317c24.retail.ca_daily`
-  WHERE DATE(jour) >= DATE_SUB(
-    (SELECT MAX(DATE(jour)) FROM `retail-pipeline-317c24.retail.ca_daily`),
-    INTERVAL 120 DAY
-  )
+  SELECT date_day, revenue, NULL AS forecast_revenue, NULL AS lower_bound, NULL AS upper_bound
+  FROM `your-project.retail_ml.ml_daily_revenue`
+  WHERE date_day >= DATE_SUB(
+    (SELECT MAX(date_day) FROM `your-project.retail_ml.ml_daily_revenue`), INTERVAL 120 DAY)
 ),
 forecast AS (
-  SELECT DATE(jour) AS jour, NULL AS ca, ca_prevu, borne_basse, borne_haute
-  FROM `retail-pipeline-317c24.retail.ca_forecast_results`
+  SELECT date_day, NULL AS revenue, forecast_revenue, lower_bound, upper_bound
+  FROM `your-project.retail_ml.bqml_revenue_forecast`
 )
 SELECT * FROM history
 UNION ALL
 SELECT * FROM forecast
-ORDER BY jour;
+ORDER BY date_day;
 
 
 -- ---------------------------------------------------------------------
--- 1b. FORECAST ONLY — clean 30-day view with confidence interval
---     Viz: Line chart, 3 series (ca_prevu solid, bornes dashed)
+-- 2. CUSTOMER SEGMENTS — RFM scatter (KMeans, k=4)
+--    Viz: Scatter, X = recency_days, Y = monetary (log scale),
+--    bubble size = frequency, color = segment_id.
+--    Segment ids are not stable across retrainings: name them from their
+--    average RFM (block 2b), not from a hard-coded id.
 -- ---------------------------------------------------------------------
-SELECT jour, ca_prevu, borne_basse, borne_haute
-FROM `retail-pipeline-317c24.retail.ca_forecast_results`
-ORDER BY jour;
+SELECT customer_id, recency_days, frequency, monetary, segment_id
+FROM `your-project.retail_ml.bqml_customer_segments`;
 
 
--- ---------------------------------------------------------------------
--- 2. CUSTOMER SEGMENTS — RFM scatter (KMeans k=4)
---    Viz: Scatter / Bubble
---    X = recency, Y = monetary, bubble size = frequency, color = segment_label
---    Log scale on Y helps (whales dwarf the rest).
--- ---------------------------------------------------------------------
+-- 2b. SEGMENT PROFILE — size and average RFM per segment
 SELECT
-  customer_id,
-  recency,
-  frequency,
-  monetary,
-  CASE segment
-    WHEN '2' THEN 'Whales'
-    WHEN '1' THEN 'Loyal / Active'
-    WHEN '4' THEN 'Dormant'
-    WHEN '3' THEN 'Churned'
-    ELSE segment
-  END AS segment_label
-FROM `retail-pipeline-317c24.retail.customer_segments`;
-
-
--- ---------------------------------------------------------------------
--- 2b. SEGMENT SUMMARY — size + average RFM per segment
---     Viz: Bar chart (X = segment_label, Y = customers) or a table
--- ---------------------------------------------------------------------
-SELECT
-  CASE segment
-    WHEN '2' THEN 'Whales'
-    WHEN '1' THEN 'Loyal / Active'
-    WHEN '4' THEN 'Dormant'
-    WHEN '3' THEN 'Churned'
-    ELSE segment
-  END AS segment_label,
-  COUNT(*)                          AS customers,
-  ROUND(AVG(recency))               AS avg_recency_days,
-  ROUND(AVG(frequency), 1)          AS avg_orders,
-  ROUND(AVG(monetary))              AS avg_revenue_gbp,
-  ROUND(SUM(monetary))              AS total_revenue_gbp
-FROM `retail-pipeline-317c24.retail.customer_segments`
-GROUP BY segment_label
+  segment_id,
+  COUNT(*)                    AS customers,
+  ROUND(AVG(recency_days))    AS avg_recency_days,
+  ROUND(AVG(frequency), 1)    AS avg_invoices,
+  ROUND(AVG(monetary))        AS avg_revenue_gbp,
+  ROUND(SUM(monetary))        AS total_revenue_gbp
+FROM `your-project.retail_ml.bqml_customer_segments`
+GROUP BY segment_id
 ORDER BY avg_revenue_gbp DESC;
 
 
 -- ---------------------------------------------------------------------
 -- 3. REVENUE BY COUNTRY — world map
---    Viz: Map (Region map). Metabase matches on ISO-2 codes -> use `iso`.
+--    Viz: Region map. Metabase matches ISO alpha-2 codes -> country_iso_code.
 -- ---------------------------------------------------------------------
-SELECT
-  d.iso,
-  d.country,
-  ROUND(SUM(f.total)) AS revenue_gbp
-FROM `retail-pipeline-317c24.retail.fct_invoices` f
-JOIN `retail-pipeline-317c24.retail.dim_customer` d ON f.customer_id = d.customer_id
-GROUP BY d.iso, d.country
+SELECT country_iso_code, country_name, ROUND(revenue) AS revenue_gbp
+FROM `your-project.retail_reports.rpt_revenue_by_country`
 ORDER BY revenue_gbp DESC;
 
 
 -- ---------------------------------------------------------------------
--- 4. TOP 10 PRODUCTS BY REVENUE
---    Viz: Row chart (horizontal bar)
+-- 4. TOP 10 PRODUCTS BY REVENUE — Viz: Row chart
 -- ---------------------------------------------------------------------
-SELECT
-  p.description AS product,
-  ROUND(SUM(f.total)) AS revenue_gbp
-FROM `retail-pipeline-317c24.retail.fct_invoices` f
-JOIN `retail-pipeline-317c24.retail.dim_product` p ON f.product_id = p.product_id
-GROUP BY product
+SELECT description AS product, ROUND(revenue) AS revenue_gbp
+FROM `your-project.retail_reports.rpt_product_sales`
 ORDER BY revenue_gbp DESC
 LIMIT 10;
 
 
 -- ---------------------------------------------------------------------
--- 5. MONTHLY REVENUE TREND — seasonality (strong Sep–Nov peak)
---    Viz: Bar or line chart, X = month
+-- 5. MONTHLY REVENUE — seasonality. Viz: Line or bar, X = month_start_date
 -- ---------------------------------------------------------------------
-SELECT
-  DATE_TRUNC(dt.datetime, MONTH) AS month,
-  ROUND(SUM(f.total))            AS revenue_gbp
-FROM `retail-pipeline-317c24.retail.fct_invoices` f
-JOIN `retail-pipeline-317c24.retail.dim_datetime` dt ON f.datetime_id = dt.datetime_id
-GROUP BY month
-ORDER BY month;
+SELECT month_start_date, ROUND(revenue) AS revenue_gbp, invoice_count
+FROM `your-project.retail_reports.rpt_monthly_revenue`
+ORDER BY month_start_date;
 
 
 -- ---------------------------------------------------------------------
--- 6. PARETO — revenue concentration (top ~23% customers = ~80% revenue)
---    Viz: Line chart, X = customer_rank_pct, Y = cumulative_pct
+-- 6. PARETO — revenue concentration. Viz: Line, X = customer_share,
+--    Y = cumulative_revenue_share. The share of customers making 80% of
+--    revenue is block 6b.
 -- ---------------------------------------------------------------------
-WITH ranked AS (
-  SELECT
-    customer_id,
-    monetary,
-    SUM(monetary) OVER (ORDER BY monetary DESC) AS running_total,
-    SUM(monetary) OVER ()                       AS grand_total,
-    ROW_NUMBER()  OVER (ORDER BY monetary DESC) AS rn,
-    COUNT(*)      OVER ()                        AS total_customers
-  FROM `retail-pipeline-317c24.retail.customer_rfm`
-)
 SELECT
-  ROUND(100 * rn / total_customers, 2)       AS customer_rank_pct,
-  ROUND(100 * running_total / grand_total, 2) AS cumulative_revenue_pct
-FROM ranked
-ORDER BY rn;
+  ROUND(100 * customer_share, 2)           AS customer_rank_pct,
+  ROUND(100 * cumulative_revenue_share, 2) AS cumulative_revenue_pct
+FROM `your-project.retail_reports.rpt_customer_revenue_concentration`
+ORDER BY revenue_rank;
+
+
+-- 6b. Share of customers making 80% of revenue (single value)
+SELECT ROUND(100 * AVG(IF(is_in_top_80pct_revenue, 1, 0)), 1) AS pct_customers_for_80pct_revenue
+FROM `your-project.retail_reports.rpt_customer_revenue_concentration`;
