@@ -1,20 +1,24 @@
-# include/dbt/cosmos_config.py
+"""Cosmos configuration shared by every dbt task group of the retail DAG."""
 
-from cosmos.config import ExecutionConfig, ProfileConfig, ProjectConfig
+import os
 from pathlib import Path
 
-DBT_CONFIG = ProfileConfig(
-    profile_name='retail',
-    target_name='dev',
-    profiles_yml_filepath=Path('/usr/local/airflow/include/dbt/profiles.yml')
+from cosmos.config import ExecutionConfig, ProfileConfig, ProjectConfig
+
+AIRFLOW_HOME = Path(os.environ.get("AIRFLOW_HOME", "/opt/airflow"))
+DBT_PROJECT_PATH = AIRFLOW_HOME / "include" / "dbt"
+
+DBT_PROJECT_CONFIG = ProjectConfig(dbt_project_path=DBT_PROJECT_PATH, install_dbt_deps=True)
+
+# profiles.yml reads everything else (project, key path, location) from env vars.
+DBT_PROFILE_CONFIG = ProfileConfig(
+    profile_name="retail",
+    target_name=os.environ.get("DBT_TARGET", "prod"),
+    profiles_yml_filepath=DBT_PROJECT_PATH / "profiles.yml",
 )
 
-DBT_PROJECT_CONFIG = ProjectConfig(
-    dbt_project_path='/usr/local/airflow/include/dbt/',
-)
-
-# dbt lives in an isolated venv (see Dockerfile); point Cosmos at it explicitly
-# instead of relying on a dbt binary on the Airflow env PATH.
+# dbt lives in its own venv (see Dockerfile) to keep its dependencies away
+# from Airflow's.
 DBT_EXECUTION_CONFIG = ExecutionConfig(
-    dbt_executable_path='/usr/local/airflow/dbt_venv/bin/dbt',
+    dbt_executable_path=str(AIRFLOW_HOME / "dbt_venv" / "bin" / "dbt"),
 )
