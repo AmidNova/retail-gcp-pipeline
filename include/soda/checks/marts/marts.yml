@@ -1,16 +1,20 @@
+# Keys, uniqueness and relationships are dbt tests. Soda watches the scope of
+# the star schema and attribute completeness.
 checks for fct_invoice_lines:
-  - row_count > 0
-  - missing_count(customer_id) = 0
-  - missing_count(product_key) = 0
+  # 75.5% of raw lines are in scope (positive sales of identified customers).
+  # A shift means either the data or the scope filter changed.
+  - fct_share_of_raw_pct:
+      name: Fact lines as a share of raw lines (%)
+      fct_share_of_raw_pct query: |
+        select 100 * (select count(*) from fct_invoice_lines)
+            / (select count(*) from `${GCP_PROJECT_ID}.${BQ_RAW_DATASET}.online_retail`)
+      warn: when not between 72 and 79
+      fail: when not between 60 and 90
 
 checks for dim_customers:
-  - row_count > 0
-  - duplicate_count(customer_id) = 0
-
-checks for dim_products:
-  - row_count > 0
-  - duplicate_count(product_key) = 0
-
-checks for dim_dates:
-  - row_count > 0
-  - duplicate_count(date_day) = 0
+  # 0.66% of customers have a country label that is not an ISO country
+  # (EIRE, Channel Islands...). A rise means new unmapped labels in the seed.
+  - missing_percent(country_iso_code):
+      name: Customers without ISO country code (%)
+      warn: when > 2
+      fail: when > 10

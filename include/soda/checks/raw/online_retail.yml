@@ -1,7 +1,9 @@
-# Gate between loading and transforming: stop the run before dbt if the file
-# that landed does not look like the expected export.
+# Gate between loading and transforming. Integrity rules (keys, relationships)
+# live in dbt tests; Soda watches volume and distributions.
+# Baselines measured on the full Online Retail II export (1,067,371 rows).
 checks for online_retail:
   - schema:
+      name: Raw file has the expected columns and types
       fail:
         when required column missing:
           [Invoice, StockCode, Description, Quantity, InvoiceDate, Price, Customer_id, Country]
@@ -14,6 +16,42 @@ checks for online_retail:
           Price: numeric
           Customer_id: float64
           Country: string
-  - row_count > 0
-  - missing_count(Invoice) = 0
-  - missing_count(InvoiceDate) = 0
+
+  - row_count > 0:
+      name: Raw table is not empty
+
+  # The source is a closed historical export: any change in volume is
+  # unexpected (warn). A drop of more than 5% means a partial file and stops
+  # the run. The Excel-truncated export used before (-1.76%) would have warned.
+  - raw_volume_change_pct:
+      name: Raw volume vs last successful run (%)
+      raw_volume_change_pct query: |
+        with last_run as (
+          select raw_rows
+          from `${GCP_PROJECT_ID}.retail_monitoring.pipeline_runs`
+          where state = 'success' and raw_rows is not null
+          order by recorded_at desc
+          limit 1
+        )
+        select coalesce(
+          100 * ((select count(*) from online_retail) - (select raw_rows from last_run))
+              / (select raw_rows from last_run),
+          0)
+      warn: when != 0
+      fail: when < -5
+
+  # Guest checkouts (no customer id) are 22.8% of lines. A jump means the
+  # customer column broke upstream, which would silently shrink every
+  # customer-level metric.
+  - missing_percent(Customer_id):
+      name: Share of lines without customer id (%)
+      warn: when > 25
+      fail: when > 35
+
+  # Cancellations ("C" invoices) are 1.8% of lines.
+  - cancelled_lines_pct:
+      name: Share of cancellation lines (%)
+      cancelled_lines_pct query: |
+        select 100 * countif(Invoice like 'C%') / count(*) from online_retail
+      warn: when > 3
+      fail: when > 10
