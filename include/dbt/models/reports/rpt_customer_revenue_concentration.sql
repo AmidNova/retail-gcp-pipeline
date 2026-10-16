@@ -16,10 +16,10 @@ ranked as (
     select
         customer_id,
         revenue,
-        row_number() over (order by revenue desc, customer_id) as revenue_rank,
+        row_number() over (order by revenue desc, customer_id asc) as revenue_rank,
         count(*) over () as customer_count,
         sum(revenue) over (
-            order by revenue desc, customer_id
+            order by revenue desc, customer_id asc
             rows between unbounded preceding and current row
         ) as cumulative_revenue,
         sum(revenue) over () as total_revenue

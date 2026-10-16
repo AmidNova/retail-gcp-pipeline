@@ -22,6 +22,7 @@ select
     unit_price,
     line_amount
 from lines
-where quantity > 0
+where
+    quantity > 0
     and unit_price > 0
     and customer_id is not null

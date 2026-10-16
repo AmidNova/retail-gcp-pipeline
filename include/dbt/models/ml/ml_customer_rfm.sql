@@ -12,7 +12,19 @@ with invoices as (
 
 ),
 
-reference_date as (
+customers as (
+
+    select
+        customer_id,
+        max(invoice_date) as last_invoice_date,
+        count(distinct invoice_id) as frequency,
+        sum(invoice_amount) as monetary
+    from invoices
+    group by customer_id
+
+),
+
+bounds as (
 
     select cast({{ dbt.dateadd('day', 1, 'max(invoice_date)') }} as date) as reference_date
     from invoices
@@ -20,10 +32,9 @@ reference_date as (
 )
 
 select
-    invoices.customer_id,
-    {{ dbt.datediff('max(invoices.invoice_date)', 'reference_date.reference_date', 'day') }} as recency_days,
-    count(distinct invoices.invoice_id) as frequency,
-    sum(invoices.invoice_amount) as monetary
-from invoices
-cross join reference_date
-group by invoices.customer_id, reference_date.reference_date
+    customers.customer_id,
+    {{ dbt.datediff('last_invoice_date', 'reference_date', 'day') }} as recency_days,
+    customers.frequency,
+    customers.monetary
+from customers
+cross join bounds

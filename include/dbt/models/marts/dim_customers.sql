@@ -19,7 +19,7 @@ ranked_countries as (
         country_name,
         row_number() over (
             partition by customer_id
-            order by invoiced_at desc, country_name
+            order by invoiced_at desc, country_name asc
         ) as recency_rank
     from lines
 
@@ -44,7 +44,8 @@ select
     activity.last_purchase_at
 from activity
 inner join ranked_countries
-    on activity.customer_id = ranked_countries.customer_id
-    and ranked_countries.recency_rank = 1
+    on
+        activity.customer_id = ranked_countries.customer_id
+        and ranked_countries.recency_rank = 1
 left join countries
     on ranked_countries.country_name = countries.country_name

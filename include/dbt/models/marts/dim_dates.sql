@@ -1,12 +1,11 @@
 -- Calendar dimension generated from a date spine (no gaps, unlike dates found
 -- in the facts). Bounds are project vars in dbt_project.yml.
+{% set start_date = "cast('" ~ var('calendar_start_date') ~ "' as date)" %}
+{% set end_date = "cast('" ~ var('calendar_end_date') ~ "' as date)" %}
+
 with spine as (
 
-    {{ dbt_utils.date_spine(
-        datepart="day",
-        start_date="cast('" ~ var('calendar_start_date') ~ "' as date)",
-        end_date="cast('" ~ var('calendar_end_date') ~ "' as date)"
-    ) }}
+    {{ dbt_utils.date_spine(datepart="day", start_date=start_date, end_date=end_date) }}
 
 ),
 

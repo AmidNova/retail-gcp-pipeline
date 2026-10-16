@@ -13,5 +13,6 @@ with curve as (
 
 select *
 from curve
-where (revenue_rank = last_rank and abs(cumulative_revenue_share - 1) > 1e-9)
+where
+    (revenue_rank = last_rank and abs(cumulative_revenue_share - 1) > 1e-9)
     or cumulative_revenue_share < previous_share

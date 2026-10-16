@@ -8,16 +8,24 @@ with fact as (
 
 reports as (
 
-    select 'rpt_revenue_by_country' as report_name, sum(revenue) as revenue
+    select
+        'rpt_revenue_by_country' as report_name,
+        sum(revenue) as revenue
     from {{ ref('rpt_revenue_by_country') }}
     union all
-    select 'rpt_monthly_revenue', sum(revenue)
+    select
+        'rpt_monthly_revenue' as report_name,
+        sum(revenue) as revenue
     from {{ ref('rpt_monthly_revenue') }}
     union all
-    select 'rpt_product_sales', sum(revenue)
+    select
+        'rpt_product_sales' as report_name,
+        sum(revenue) as revenue
     from {{ ref('rpt_product_sales') }}
     union all
-    select 'rpt_customer_revenue_concentration', sum(revenue)
+    select
+        'rpt_customer_revenue_concentration' as report_name,
+        sum(revenue) as revenue
     from {{ ref('rpt_customer_revenue_concentration') }}
 
 )
