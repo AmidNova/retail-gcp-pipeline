@@ -1,0 +1,34 @@
+version: 2
+
+seeds:
+  - name: country_codes
+    description: >
+      Static reference table mapping country names to ISO codes. Versioned as a
+      dbt seed because it is small, rarely changes and must be reviewed in PRs.
+    config:
+      column_types:
+        id: int64
+        iso: string
+        name: string
+        nicename: string
+        iso3: string
+        numcode: int64
+        phonecode: int64
+    columns:
+      - name: id
+        description: Technical row id from the original reference file.
+        data_tests: [unique, not_null]
+      - name: iso
+        description: ISO 3166-1 alpha-2 code (used by the Metabase world map).
+        data_tests: [unique, not_null]
+      - name: name
+        description: Upper-case official country name.
+      - name: nicename
+        description: Country name as spelled in the retail dataset (join key).
+        data_tests: [unique, not_null]
+      - name: iso3
+        description: ISO 3166-1 alpha-3 code (missing for a few territories).
+      - name: numcode
+        description: ISO 3166-1 numeric code.
+      - name: phonecode
+        description: International dialling prefix.

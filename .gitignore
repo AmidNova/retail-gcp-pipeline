@@ -16,8 +16,8 @@ include/gcp/
 service_account.json
 *-service-account*.json
 
-# Large dataset — re-download from Kaggle (see README)
-include/dataset/online_retail.csv
+# Large dataset — regenerate with `make dataset` (scripts/download_dataset.py)
+include/dataset/
 
 # Local state / build artifacts
 include/metabase-data/

@@ -1,0 +1,40 @@
+version: 2
+
+sources:
+  - name: retail_raw
+    description: >
+      Raw landing zone. Loaded as-is by the Airflow DAG (GCS -> BigQuery,
+      explicit schema, WRITE_TRUNCATE). Never modified by dbt.
+    database: "{{ env_var('GCP_PROJECT_ID') }}"
+    schema: "{{ env_var('BQ_RAW_DATASET', 'retail_raw') }}"
+    config:
+      # No load-timestamp column in the file: dbt reads the table's
+      # last-modified time from BigQuery metadata instead.
+      freshness:
+        warn_after: {count: 7, period: day}
+        error_after: {count: 30, period: day}
+    tables:
+      - name: online_retail
+        description: >
+          Online Retail II (UCI): one row per invoice line of a UK online
+          retailer, 2009-12-01 to 2011-12-09. Cancellations are invoices
+          prefixed with "C" and carry a negative quantity.
+        columns:
+          - name: Invoice
+            description: Invoice number, prefixed with "C" for cancellations.
+            data_tests: [not_null]
+          - name: StockCode
+            description: Product code. Not unique per product (price and wording vary).
+          - name: Description
+            description: Product label as typed at the time of sale.
+          - name: Quantity
+            description: Units on the line, negative for returns and cancellations.
+          - name: InvoiceDate
+            description: Invoice timestamp as text, format YYYY-MM-DD HH:MM:SS (UK local time).
+            data_tests: [not_null]
+          - name: Price
+            description: Unit price in GBP.
+          - name: Customer_id
+            description: Customer number, null for guest checkouts.
+          - name: Country
+            description: Customer country name.

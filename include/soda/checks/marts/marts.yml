@@ -1,0 +1,16 @@
+checks for fct_invoice_lines:
+  - row_count > 0
+  - missing_count(customer_id) = 0
+  - missing_count(product_key) = 0
+
+checks for dim_customers:
+  - row_count > 0
+  - duplicate_count(customer_id) = 0
+
+checks for dim_products:
+  - row_count > 0
+  - duplicate_count(product_key) = 0
+
+checks for dim_dates:
+  - row_count > 0
+  - duplicate_count(date_day) = 0

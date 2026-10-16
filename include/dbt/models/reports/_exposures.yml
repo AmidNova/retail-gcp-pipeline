@@ -1,0 +1,21 @@
+version: 2
+
+exposures:
+  - name: metabase_retail_dashboard
+    label: Metabase retail dashboard
+    type: dashboard
+    maturity: low
+    description: >
+      Local Metabase dashboard (docker compose, port 3002). SQL of each card is
+      versioned in docs/metabase_queries.sql. Declared here so that
+      `dbt ls --select +exposure:metabase_retail_dashboard` lists everything it
+      depends on, and a PR touching those models is visible.
+    owner:
+      name: AmidNova
+    depends_on:
+      - ref('rpt_revenue_by_country')
+      - ref('rpt_monthly_revenue')
+      - ref('rpt_product_sales')
+      - ref('rpt_customer_revenue_concentration')
+      - ref('ml_daily_revenue')
+      - ref('ml_customer_rfm')

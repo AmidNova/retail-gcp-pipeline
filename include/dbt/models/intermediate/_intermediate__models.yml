@@ -1,0 +1,46 @@
+version: 2
+
+models:
+  - name: int_invoice_lines__customer_sales
+    description: >
+      Sales lines in scope for the star schema: quantity > 0, unit_price > 0
+      and a known customer. Returns, zero-price lines and guest checkouts are
+      excluded here and only here, so the scope is defined in one place.
+    columns:
+      - name: invoice_id
+        description: Invoice number.
+        data_tests: [not_null]
+      - name: invoiced_at
+        description: Invoice timestamp.
+        data_tests: [not_null]
+      - name: invoice_date
+        description: Calendar date of the invoice (join key to dim_dates).
+        data_tests: [not_null]
+      - name: customer_id
+        description: Customer number.
+        data_tests: [not_null]
+      - name: country_name
+        description: Country recorded on this line.
+      - name: product_key
+        description: Surrogate key of (stock_code, description, unit_price).
+        data_tests: [not_null]
+      - name: stock_code
+        description: Product code.
+      - name: description
+        description: Product label.
+      - name: quantity
+        description: Units sold (> 0).
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                inclusive: false
+      - name: unit_price
+        description: Unit price in GBP (> 0).
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                inclusive: false
+      - name: line_amount
+        description: Revenue of the line in GBP.

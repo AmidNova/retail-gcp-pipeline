@@ -1,0 +1,32 @@
+[sqlfluff]
+dialect = bigquery
+templater = dbt
+# LT05 (line length) and LT15 (blank lines) are measured on the compiled SQL,
+# so dbt macro expansions (date_spine, datediff) trigger them in code that is
+# short in the source.
+exclude_rules = LT05, LT15
+
+[sqlfluff:templater:dbt]
+project_dir = include/dbt
+profiles_dir = include/dbt
+profile = retail
+target = dev
+
+[sqlfluff:indentation]
+tab_space_size = 4
+
+[sqlfluff:rules:capitalisation.keywords]
+capitalisation_policy = lower
+
+[sqlfluff:rules:capitalisation.identifiers]
+# Raw column names as they come in the source file
+ignore_words = Invoice,StockCode,Description,Quantity,InvoiceDate,Price,Customer_id,Country
+
+[sqlfluff:rules:capitalisation.functions]
+extended_capitalisation_policy = lower
+
+[sqlfluff:rules:capitalisation.literals]
+capitalisation_policy = lower
+
+[sqlfluff:rules:capitalisation.types]
+extended_capitalisation_policy = lower

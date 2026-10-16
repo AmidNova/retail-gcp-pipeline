@@ -1,0 +1,60 @@
+version: 2
+
+models:
+  - name: stg_retail__invoice_lines
+    description: >
+      Raw invoice lines, renamed and typed, with business flags. Same row count
+      as the source: nothing is filtered at this layer.
+    columns:
+      - name: invoice_id
+        description: Invoice number ("C" prefix = cancellation).
+        data_tests: [not_null]
+      - name: stock_code
+        description: Product code.
+      - name: description
+        description: Trimmed product label.
+      - name: quantity
+        description: Units on the line, negative for returns.
+      - name: unit_price
+        description: Unit price in GBP.
+      - name: invoiced_at
+        description: Invoice timestamp. Null would mean an unparseable source date.
+        data_tests: [not_null]
+      - name: customer_id
+        description: Customer number as text, null for guest checkouts.
+      - name: country_name
+        description: Customer country name.
+      - name: line_amount
+        description: quantity * unit_price, in GBP (negative for returns).
+      - name: is_cancellation
+        description: True when the invoice number starts with "C".
+        data_tests: [not_null]
+      - name: is_guest_checkout
+        description: True when the line has no customer number.
+        data_tests: [not_null]
+
+  - name: stg_reference__country_codes
+    description: Country name to ISO alpha-2 mapping, from the country_codes seed.
+    columns:
+      - name: country_name
+        description: Country name as spelled in the retail dataset.
+        data_tests: [unique, not_null]
+      - name: country_iso_code
+        description: ISO 3166-1 alpha-2 code.
+        data_tests: [unique, not_null]
+
+unit_tests:
+  - name: test_stg_invoice_lines_normalises_ids_and_flags
+    description: >
+      Customer ids exported as floats ("13085.0") must become "13085", guest
+      lines and "C" invoices must be flagged, line_amount = quantity * price.
+    model: stg_retail__invoice_lines
+    given:
+      - input: source('retail_raw', 'online_retail')
+        rows:
+          - {Invoice: "489434", StockCode: "85048", Description: " GLASS BALL ", Quantity: 12, InvoiceDate: "2009-12-01 07:45:00", Price: 6.95, Customer_id: 13085.0, Country: "United Kingdom"}
+          - {Invoice: "C489449", StockCode: "22087", Description: "PAPER BUNTING", Quantity: -12, InvoiceDate: "2009-12-01 10:33:00", Price: 2.95, Customer_id: null, Country: "Australia"}
+    expect:
+      rows:
+        - {invoice_id: "489434", description: "GLASS BALL", customer_id: "13085", line_amount: 83.4, is_cancellation: false, is_guest_checkout: false}
+        - {invoice_id: "C489449", description: "PAPER BUNTING", customer_id: null, line_amount: -35.4, is_cancellation: true, is_guest_checkout: true}

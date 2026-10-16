@@ -1,0 +1,11 @@
+checks for rpt_revenue_by_country:
+  - row_count > 0
+
+checks for rpt_monthly_revenue:
+  - row_count > 0
+
+checks for rpt_product_sales:
+  - row_count > 0
+
+checks for rpt_customer_revenue_concentration:
+  - row_count > 0

@@ -1,0 +1,92 @@
+version: 2
+
+models:
+  - name: rpt_revenue_by_country
+    description: Revenue, invoices and customers per customer country (all countries).
+    columns:
+      - name: country_name
+        description: Customer country.
+        data_type: string
+        constraints: [{type: not_null}]
+        data_tests: [unique]
+      - name: country_iso_code
+        description: ISO alpha-2 code for the Metabase map (null for non-ISO labels).
+        data_type: string
+      - name: invoice_count
+        description: Distinct invoices.
+        data_type: int64
+      - name: customer_count
+        description: Distinct customers.
+        data_type: int64
+      - name: revenue
+        description: Revenue in GBP.
+        data_type: numeric
+
+  - name: rpt_monthly_revenue
+    description: Revenue and invoice count per calendar month (seasonality view).
+    columns:
+      - name: month_start_date
+        description: First day of the month.
+        data_type: date
+        constraints: [{type: not_null}]
+        data_tests: [unique]
+      - name: calendar_year
+        description: Year.
+        data_type: int64
+      - name: calendar_month
+        description: Month number.
+        data_type: int64
+      - name: invoice_count
+        description: Distinct invoices.
+        data_type: int64
+      - name: revenue
+        description: Revenue in GBP.
+        data_type: numeric
+
+  - name: rpt_product_sales
+    description: Units sold and revenue per product label (all products, unranked).
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [stock_code, description]
+    columns:
+      - name: stock_code
+        description: Product code.
+        data_type: string
+      - name: description
+        description: Product label.
+        data_type: string
+      - name: quantity_sold
+        description: Units sold.
+        data_type: int64
+      - name: revenue
+        description: Revenue in GBP.
+        data_type: numeric
+
+  - name: rpt_customer_revenue_concentration
+    description: >
+      Customers ranked by revenue with cumulative shares (Pareto curve). Source
+      of the "x% of customers make 80% of revenue" figure. Scope: identified
+      customers only, gross sales (returns excluded).
+    columns:
+      - name: customer_id
+        description: Customer number.
+        data_type: string
+        constraints: [{type: not_null}]
+        data_tests: [unique]
+      - name: revenue
+        description: Customer revenue in GBP.
+        data_type: numeric
+      - name: revenue_rank
+        description: 1 = highest revenue (ties broken by customer_id).
+        data_type: int64
+        data_tests: [unique]
+      - name: customer_share
+        description: revenue_rank / number of customers.
+        data_type: float64
+      - name: cumulative_revenue_share
+        description: Share of total revenue made by customers ranked up to this one.
+        data_type: float64
+      - name: is_in_top_80pct_revenue
+        description: True for the customers needed to reach 80% of total revenue.
+        data_type: boolean

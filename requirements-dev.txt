@@ -1,0 +1,9 @@
+# Local tooling and CI. dbt versions must match the Dockerfile.
+dbt-core==1.11.16
+dbt-bigquery==1.11.1
+sqlfluff==3.4.2
+sqlfluff-templater-dbt==3.4.2
+pre-commit==4.2.0
+# scripts/download_dataset.py
+pandas==2.2.3
+openpyxl==3.1.5
