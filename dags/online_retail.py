@@ -15,8 +15,12 @@ from airflow.providers.google.cloud.operators.bigquery import (
     BigQueryCreateEmptyDatasetOperator,
     BigQueryInsertJobOperator,
 )
-from airflow.providers.google.cloud.transfers.gcs_to_bigquery import GCSToBigQueryOperator
-from airflow.providers.google.cloud.transfers.local_to_gcs import LocalFilesystemToGCSOperator
+from airflow.providers.google.cloud.transfers.gcs_to_bigquery import (
+    GCSToBigQueryOperator,
+)
+from airflow.providers.google.cloud.transfers.local_to_gcs import (
+    LocalFilesystemToGCSOperator,
+)
 from cosmos import DbtTaskGroup, RenderConfig
 from cosmos.constants import LoadMode
 
@@ -156,7 +160,7 @@ def retail():
     train_revenue_forecast = bigquery_job(
         "train_revenue_forecast",
         f"""
-        CREATE OR REPLACE MODEL {ml_table('bqml_revenue_forecast_model')}
+        CREATE OR REPLACE MODEL {ml_table("bqml_revenue_forecast_model")}
         OPTIONS(
             model_type = 'ARIMA_PLUS',
             time_series_timestamp_col = 'date_day',
@@ -165,21 +169,21 @@ def retail():
             holiday_region = 'GB',
             auto_arima = TRUE
         ) AS
-        SELECT date_day, revenue FROM {ml_table('ml_daily_revenue')}
+        SELECT date_day, revenue FROM {ml_table("ml_daily_revenue")}
         """,
     )
 
     forecast_revenue = bigquery_job(
         "forecast_revenue",
         f"""
-        CREATE OR REPLACE TABLE {ml_table('bqml_revenue_forecast')} AS
+        CREATE OR REPLACE TABLE {ml_table("bqml_revenue_forecast")} AS
         SELECT
             DATE(forecast_timestamp) AS date_day,
             forecast_value AS forecast_revenue,
             prediction_interval_lower_bound AS lower_bound,
             prediction_interval_upper_bound AS upper_bound
         FROM ML.FORECAST(
-            MODEL {ml_table('bqml_revenue_forecast_model')},
+            MODEL {ml_table("bqml_revenue_forecast_model")},
             STRUCT(30 AS horizon, 0.8 AS confidence_level)
         )
         """,
@@ -188,16 +192,16 @@ def retail():
     train_customer_segments = bigquery_job(
         "train_customer_segments",
         f"""
-        CREATE OR REPLACE MODEL {ml_table('bqml_customer_segments_model')}
+        CREATE OR REPLACE MODEL {ml_table("bqml_customer_segments_model")}
         OPTIONS(model_type = 'KMEANS', num_clusters = 4, standardize_features = TRUE) AS
-        SELECT recency_days, frequency, monetary FROM {ml_table('ml_customer_rfm')}
+        SELECT recency_days, frequency, monetary FROM {ml_table("ml_customer_rfm")}
         """,
     )
 
     score_customer_segments = bigquery_job(
         "score_customer_segments",
         f"""
-        CREATE OR REPLACE TABLE {ml_table('bqml_customer_segments')} AS
+        CREATE OR REPLACE TABLE {ml_table("bqml_customer_segments")} AS
         SELECT
             customer_id,
             recency_days,
@@ -205,8 +209,8 @@ def retail():
             monetary,
             CAST(CENTROID_ID AS STRING) AS segment_id
         FROM ML.PREDICT(
-            MODEL {ml_table('bqml_customer_segments_model')},
-            TABLE {ml_table('ml_customer_rfm')}
+            MODEL {ml_table("bqml_customer_segments_model")},
+            TABLE {ml_table("ml_customer_rfm")}
         )
         """,
     )

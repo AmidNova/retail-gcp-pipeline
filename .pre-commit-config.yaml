@@ -1,0 +1,29 @@
+# Install once with `make setup` (runs `pre-commit install`).
+# sqlfluff uses the dbt templater, which compiles against BigQuery: it needs
+# credentials (key file or `gcloud auth application-default login`).
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+        args: [--maxkb=1024]
+      - id: detect-private-key
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.11.4
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: local
+    hooks:
+      - id: sqlfluff-lint
+        name: sqlfluff lint (dbt templater)
+        entry: .venv/bin/sqlfluff lint
+        language: system
+        types: [sql]
+        files: ^include/dbt/(models|tests)/

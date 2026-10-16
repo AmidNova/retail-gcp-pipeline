@@ -42,15 +42,24 @@ def test_tasks_retry(retail_dag):
 def test_soda_gate_runs_between_load_and_dbt(retail_dag):
     check_raw = retail_dag.get_task("check_raw")
     assert "load_raw" in check_raw.upstream_task_ids
-    assert any(task_id.startswith("transform.") for task_id in check_raw.downstream_task_ids)
+    assert any(
+        task_id.startswith("transform.") for task_id in check_raw.downstream_task_ids
+    )
 
 
 def test_dbt_layers_are_rendered(retail_dag):
     task_ids = set(retail_dag.task_ids)
-    for model in ("stg_retail__invoice_lines", "fct_invoice_lines", "rpt_monthly_revenue", "ml_customer_rfm"):
+    for model in (
+        "stg_retail__invoice_lines",
+        "fct_invoice_lines",
+        "rpt_monthly_revenue",
+        "ml_customer_rfm",
+    ):
         assert any(model in task_id for task_id in task_ids), f"no task for {model}"
 
 
 def test_ml_training_waits_for_features(retail_dag):
     train = retail_dag.get_task("train_revenue_forecast")
-    assert any(task_id.startswith("ml_features.") for task_id in train.upstream_task_ids)
+    assert any(
+        task_id.startswith("ml_features.") for task_id in train.upstream_task_ids
+    )

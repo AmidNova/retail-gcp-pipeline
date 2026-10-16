@@ -48,14 +48,18 @@ def to_dataframe(xlsx_path: Path) -> pd.DataFrame:
     )
     frame = pd.concat(sheets.values(), ignore_index=True)
     frame = frame.rename(columns={"Customer ID": "Customer_id"})
-    frame["InvoiceDate"] = pd.to_datetime(frame["InvoiceDate"]).dt.strftime("%Y-%m-%d %H:%M:%S")
+    frame["InvoiceDate"] = pd.to_datetime(frame["InvoiceDate"]).dt.strftime(
+        "%Y-%m-%d %H:%M:%S"
+    )
     frame["Customer_id"] = frame["Customer_id"].astype("Int64")
     return frame[OUTPUT_COLUMNS]
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--output", default="include/dataset/online_retail.csv", type=Path)
+    parser.add_argument(
+        "--output", default="include/dataset/online_retail.csv", type=Path
+    )
     args = parser.parse_args()
 
     with tempfile.TemporaryDirectory() as tmp:
