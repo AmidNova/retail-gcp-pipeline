@@ -6,8 +6,9 @@ exposures:
     type: dashboard
     maturity: low
     description: >
-      Local Metabase dashboard (docker compose, port 3002). SQL of each card is
-      versioned in docs/metabase_queries.sql. Declared here so that
+      Local Metabase dashboard "Retail Platform" (docker compose, port 3002).
+      Cards, SQL and layout are code in scripts/provision_metabase.py
+      (`make metabase`). Declared here so that
       `dbt ls --select +exposure:metabase_retail_dashboard` lists everything it
       depends on, and a PR touching those models is visible.
     owner:
