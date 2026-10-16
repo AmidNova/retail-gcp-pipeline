@@ -1,28 +1,30 @@
-# Plain Apache Airflow (LocalExecutor) — replaces the Astro CLI tooling.
-# Start with:  docker compose up -d   (Airflow UI on http://localhost:8088, admin/admin)
+# Apache Airflow (LocalExecutor) + Postgres metadata DB.
+# Configuration and secrets come from .env (copy .env.example).
+# Start with `make up`; Airflow UI on http://localhost:8088.
 ---
 x-airflow-common: &airflow-common
   build: .
+  env_file: .env
   environment: &airflow-common-env
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
     AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
     AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
-    # Cosmos LoadMode.DBT_LS renders each dbt group (dbt ls + deps) at parse time;
-    # with 3 groups this exceeds the 30s default, so raise the import timeouts.
+    # Cosmos renders each dbt task group with `dbt ls` at parse time, which
+    # takes longer than the 30s default.
     AIRFLOW__CORE__DAGBAG_IMPORT_TIMEOUT: '200'
     AIRFLOW__CORE__DAG_FILE_PROCESSOR_TIMEOUT: '200'
-    AIRFLOW__CORE__FERNET_KEY: ''
-    AIRFLOW__WEBSERVER__EXPOSE_CONFIG: 'true'
+    AIRFLOW__WEBSERVER__EXPOSE_CONFIG: 'false'
     AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: 'true'
-    # Astro put the project root on sys.path; vanilla Airflow only adds dags/.
-    # Expose it so `from include...` works in DAGs and external_python tasks.
+    # Put the project root on sys.path so `from include...` works in DAGs and
+    # in external_python tasks.
     PYTHONPATH: /opt/airflow
-    # GCP connection (was airflow_settings.yaml under Astro)
+    DBT_TARGET: prod
+    GCP_KEYFILE_PATH: /opt/airflow/include/gcp/service_account.json
     AIRFLOW_CONN_GCP: >-
       {"conn_type": "google_cloud_platform",
-       "extra": {"key_path": "/usr/local/airflow/include/gcp/service_account.json",
-                 "project": "retail-pipeline-317c24",
+       "extra": {"key_path": "/opt/airflow/include/gcp/service_account.json",
+                 "project": "${GCP_PROJECT_ID}",
                  "scope": "https://www.googleapis.com/auth/cloud-platform"}}
   volumes:
     - ./dags:/opt/airflow/dags
@@ -52,8 +54,8 @@ services:
   airflow-init:
     <<: *airflow-common
     # Run as root only to fix the logs-volume ownership, then hand off to the
-    # image /entrypoint which gosu-drops to the airflow user (uid 50000) with the
-    # correct PYTHONPATH so `airflow` is importable.
+    # image /entrypoint which drops to the airflow user (uid 50000).
+    # The admin user is recreated on each init so the password always matches .env.
     entrypoint: /bin/bash
     user: "0:0"
     command:
@@ -61,7 +63,7 @@ services:
       - |
         mkdir -p /opt/airflow/logs
         chown -R 50000:0 /opt/airflow/logs
-        exec /entrypoint bash -c "airflow db migrate && { airflow users create --username admin --password admin --firstname admin --lastname admin --role Admin --email admin@example.com || true; }"
+        exec /entrypoint bash -c 'airflow db migrate && { airflow users delete --username admin >/dev/null 2>&1 || true; } && airflow users create --username admin --password "$${AIRFLOW_ADMIN_PASSWORD:?set AIRFLOW_ADMIN_PASSWORD in .env}" --firstname admin --lastname admin --role Admin --email admin@example.com'
     restart: on-failure
 
   airflow-scheduler:
