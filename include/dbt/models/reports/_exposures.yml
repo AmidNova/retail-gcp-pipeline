@@ -11,7 +11,7 @@ exposures:
       `dbt ls --select +exposure:metabase_retail_dashboard` lists everything it
       depends on, and a PR touching those models is visible.
     owner:
-      name: Amidou Soro
+      name: AmidNova
     depends_on:
       - ref('rpt_revenue_by_country')
       - ref('rpt_monthly_revenue')
