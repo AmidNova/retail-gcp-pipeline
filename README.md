@@ -33,12 +33,12 @@ périmètre est défini à un seul endroit :
 ## Architecture
 
 ```mermaid
-flowchart LR
-    csv[("CSV Online Retail II<br/>1 067 371 lignes")] --> gcs[(GCS<br/>raw/)]
-    gcs --> raw[(BigQuery<br/>retail_raw)]
+flowchart TD
+    csv[("CSV Online Retail II<br/>1 067 371 lignes")] -->|upload_csv_to_gcs| gcs[("GCS<br/>raw/")]
+    gcs -->|load_raw| raw[("BigQuery<br/>retail_raw")]
 
     subgraph airflow["Airflow 2.7 — DAG retail (@weekly)"]
-        direction LR
+        direction TB
         sraw{{"Soda<br/>raw"}}
         subgraph dbt["dbt via Cosmos (1 tâche par modèle + ses tests)"]
             direction LR
@@ -55,7 +55,7 @@ flowchart LR
     end
 
     raw --> sraw
-    health --> mon[(retail_monitoring<br/>pipeline_runs)]
+    health --> mon[("retail_monitoring<br/>pipeline_runs")]
     reports --> mb["Metabase<br/>dashboard as code"]
     bqml --> mb
     mon --> mb
