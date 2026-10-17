@@ -48,6 +48,10 @@ up: ## Build and start Airflow + Metabase
 down: ## Stop the stack
 	$(COMPOSE) down
 
+.PHONY: metabase
+metabase: ## Create or update the Metabase dashboard (needs MB_ADMIN_* in .env)
+	$(BIN)/python -I scripts/provision_metabase.py
+
 .PHONY: run
 run: ## Trigger the retail DAG
 	docker exec $(SCHEDULER) airflow dags unpause retail

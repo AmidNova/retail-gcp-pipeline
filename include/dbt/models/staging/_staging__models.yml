@@ -43,6 +43,16 @@ models:
         description: ISO 3166-1 alpha-2 code.
         data_tests: [unique, not_null]
 
+  - name: stg_reference__non_merchandise_stock_codes
+    description: Stock codes that are not products, from the non_merchandise_stock_codes seed.
+    columns:
+      - name: stock_code
+        description: Raw stock code, exact match.
+        data_tests: [unique, not_null]
+      - name: non_merchandise_category
+        description: Why the code is not merchandise (shipping, fee, ...).
+        data_tests: [not_null]
+
 unit_tests:
   - name: test_stg_invoice_lines_normalises_ids_and_flags
     description: >

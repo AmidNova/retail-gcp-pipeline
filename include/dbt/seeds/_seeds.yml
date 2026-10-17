@@ -32,3 +32,26 @@ seeds:
         description: ISO 3166-1 numeric code.
       - name: phonecode
         description: International dialling prefix.
+
+  - name: non_merchandise_stock_codes
+    description: >
+      Stock codes that are not products: postage, manual adjustments, fees,
+      discounts, samples, test items and gift vouchers. Listed from the
+      descriptions found in the raw data (exact, case-sensitive codes). Lines
+      with these codes are excluded from the sales scope in the intermediate
+      layer.
+    config:
+      column_types:
+        stock_code: string
+        category: string
+    columns:
+      - name: stock_code
+        description: Raw stock code, exact match.
+        data_tests: [unique, not_null]
+      - name: category
+        description: Why the code is not merchandise.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [shipping, manual_adjustment, discount, fee, samples, test, gift_voucher]
