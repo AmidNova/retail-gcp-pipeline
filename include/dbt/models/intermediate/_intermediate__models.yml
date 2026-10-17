@@ -3,9 +3,12 @@ version: 2
 models:
   - name: int_invoice_lines__customer_sales
     description: >
-      Sales lines in scope for the star schema: quantity > 0, unit_price > 0
-      and a known customer. Returns, zero-price lines and guest checkouts are
-      excluded here and only here, so the scope is defined in one place.
+      Merchandise sales lines in scope for the star schema: quantity > 0,
+      unit_price > 0, a known customer and a stock code that is a product.
+      Returns, zero-price lines, guest checkouts and non-merchandise codes
+      (postage, manual adjustments, fees... see the non_merchandise_stock_codes
+      seed) are excluded here and only here, so the scope is defined in one
+      place.
     columns:
       - name: invoice_id
         description: Invoice number.
@@ -44,3 +47,27 @@ models:
                 inclusive: false
       - name: line_amount
         description: Revenue of the line in GBP.
+
+unit_tests:
+  - name: test_int_customer_sales_keeps_merchandise_only
+    description: >
+      Only positive sales of identified customers on real products are kept:
+      returns, zero-price lines, guest lines and non-merchandise codes
+      (POSTAGE, Manual, in either case) are dropped.
+    model: int_invoice_lines__customer_sales
+    given:
+      - input: ref('stg_retail__invoice_lines')
+        rows:
+          - {invoice_id: "1", stock_code: "85048", quantity: 2, unit_price: 6.95, customer_id: "13085"}
+          - {invoice_id: "2", stock_code: "POST", quantity: 1, unit_price: 18.0, customer_id: "13085"}
+          - {invoice_id: "3", stock_code: "m", quantity: 1, unit_price: 5.0, customer_id: "13085"}
+          - {invoice_id: "C4", stock_code: "85048", quantity: -2, unit_price: 6.95, customer_id: "13085"}
+          - {invoice_id: "5", stock_code: "85048", quantity: 2, unit_price: 0, customer_id: "13085"}
+          - {invoice_id: "6", stock_code: "85048", quantity: 2, unit_price: 6.95, customer_id: null}
+      - input: ref('stg_reference__non_merchandise_stock_codes')
+        rows:
+          - {stock_code: "POST", non_merchandise_category: "shipping"}
+          - {stock_code: "m", non_merchandise_category: "manual_adjustment"}
+    expect:
+      rows:
+        - {invoice_id: "1", stock_code: "85048"}

@@ -3,9 +3,16 @@
 --   * returns / cancellations  -> quantity <= 0
 --   * free or adjustment lines -> unit_price <= 0
 --   * guest checkouts          -> no customer_id, so no customer-level analysis
+--   * non-merchandise codes    -> postage, manual adjustments, fees, vouchers...
 with lines as (
 
     select * from {{ ref('stg_retail__invoice_lines') }}
+
+),
+
+non_merchandise as (
+
+    select stock_code from {{ ref('stg_reference__non_merchandise_stock_codes') }}
 
 )
 
@@ -23,6 +30,7 @@ select
     line_amount
 from lines
 where
-    quantity > 0
+    stock_code not in (select non_merchandise.stock_code from non_merchandise)
+    and quantity > 0
     and unit_price > 0
     and customer_id is not null

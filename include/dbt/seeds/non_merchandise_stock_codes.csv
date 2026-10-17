@@ -1,0 +1,26 @@
+stock_code,category
+POST,shipping
+DOT,shipping
+C2,shipping
+M,manual_adjustment
+m,manual_adjustment
+ADJUST,manual_adjustment
+ADJUST2,manual_adjustment
+B,manual_adjustment
+D,discount
+BANK CHARGES,fee
+AMAZONFEE,fee
+CRUK,fee
+S,samples
+TEST001,test
+TEST002,test
+GIFT,gift_voucher
+gift_0001_10,gift_voucher
+gift_0001_20,gift_voucher
+gift_0001_30,gift_voucher
+gift_0001_40,gift_voucher
+gift_0001_50,gift_voucher
+gift_0001_60,gift_voucher
+gift_0001_70,gift_voucher
+gift_0001_80,gift_voucher
+gift_0001_90,gift_voucher
