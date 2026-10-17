@@ -14,7 +14,7 @@ SCHEDULER := retail-gcp-pipeline-airflow-scheduler-1
 
 .PHONY: help
 help: ## List the available targets
-	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-14s %s\n", $$1, $$2}'
+	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-18s %s\n", $$1, $$2}'
 
 # --- Setup --------------------------------------------------------------------
 
