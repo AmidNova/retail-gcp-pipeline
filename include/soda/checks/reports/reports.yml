@@ -11,7 +11,7 @@ checks for rpt_monthly_revenue:
       name: Every month has positive revenue
 
 checks for rpt_customer_revenue_concentration:
-  # 23.0% of customers make 80% of revenue. This is a business KPI shown in
+  # 23.1% of customers make 80% of revenue. This is a business KPI shown in
   # the dashboard: a sudden move is more likely a data problem than a change
   # in customer behaviour, so it warns but does not stop the pipeline.
   - top_customers_for_80pct_revenue_pct:
