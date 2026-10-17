@@ -1,0 +1,44 @@
+# Declarative Automation Bundle (formerly Databricks Asset Bundle): the pipeline
+# and the job that runs it, as code. Deploy from this folder:
+#   databricks bundle validate
+#   databricks bundle deploy
+#   databricks bundle run retail_weekly
+bundle:
+  name: retail_medallion
+
+resources:
+  pipelines:
+    retail_medallion:
+      name: retail_medallion
+      # Default catalog and schema; the SQL uses fully qualified names
+      # (retail.bronze / retail.silver / retail.gold) to write to all three.
+      catalog: retail
+      schema: bronze
+      serverless: true  # the only compute available on Free Edition
+      continuous: false  # triggered: each run processes new files, then stops
+      channel: CURRENT
+      root_path: ./pipeline
+      libraries:
+        - glob:
+            include: ./pipeline/**
+
+  jobs:
+    retail_weekly:
+      name: retail_weekly
+      # Same cadence as the Airflow DAG. Paused: runs are triggered by hand
+      # (databricks bundle run) so they do not consume the Free Edition quota.
+      schedule:
+        quartz_cron_expression: "0 0 6 ? * MON"
+        timezone_id: Europe/Paris
+        pause_status: PAUSED
+      tasks:
+        - task_key: refresh_medallion
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.retail_medallion.id}
+
+targets:
+  dev:
+    # development mode: resources are prefixed with "[dev <user>]" and the
+    # pipeline runs in development mode (no automatic retries).
+    mode: development
+    default: true

@@ -1,0 +1,9 @@
+{
+  "retail.bronze.online_retail": 10,
+  "retail.silver.invoice_lines": 10,
+  "retail.silver.non_merchandise_stock_codes": 25,
+  "retail.silver.sales_lines": 5,
+  "retail.gold.daily_revenue": 3,
+  "retail.gold.customer_rfm": 3,
+  "retail.gold.customer_revenue_concentration": 3
+}

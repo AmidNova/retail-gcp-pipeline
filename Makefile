@@ -14,7 +14,7 @@ SCHEDULER := retail-gcp-pipeline-airflow-scheduler-1
 
 .PHONY: help
 help: ## List the available targets
-	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-14s %s\n", $$1, $$2}'
+	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-18s %s\n", $$1, $$2}'
 
 # --- Setup --------------------------------------------------------------------
 
@@ -66,6 +66,32 @@ dbt-build: ## dbt build (seeds, models, tests) on the dev datasets
 .PHONY: dbt-docs
 dbt-docs: ## Generate and serve the dbt docs site
 	$(DBT) docs generate && $(DBT) docs serve
+
+# --- Databricks (needs the databricks CLI, logged in) -------------------------
+
+.PHONY: databricks-setup
+databricks-setup: ## Create the retail catalog, schemas, landing volume and upload the CSVs
+	./scripts/setup_databricks.sh
+
+.PHONY: databricks-smoke
+databricks-smoke: ## Run the Databricks pipeline SQL on a local Spark
+	spark-submit databricks/tests/local_smoke_test.py \
+		include/dataset/online_retail.csv include/dbt/seeds/non_merchandise_stock_codes.csv
+
+.PHONY: databricks-test
+databricks-test: ## Same, on the 10-line fixture with expected row counts (what CI runs)
+	spark-submit databricks/tests/local_smoke_test.py \
+		databricks/tests/fixtures/online_retail_sample.csv \
+		include/dbt/seeds/non_merchandise_stock_codes.csv \
+		databricks/tests/fixtures/expected_rows.json
+
+.PHONY: databricks-deploy
+databricks-deploy: ## Validate and deploy the bundle (pipeline + job)
+	cd databricks && databricks bundle validate && databricks bundle deploy
+
+.PHONY: databricks-run
+databricks-run: ## Run the retail_weekly job and wait for it
+	cd databricks && databricks bundle run retail_weekly
 
 # --- Quality ------------------------------------------------------------------
 
