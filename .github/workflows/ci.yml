@@ -74,6 +74,27 @@ jobs:
             --entrypoint bash retail-airflow \
             -c "pip install --user -q pytest==8.3.5 && airflow db migrate >/dev/null && cd /opt/airflow && python -m pytest tests -v -p no:cacheprovider"
 
+  databricks-smoke:
+    name: Databricks pipeline SQL (local Spark)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install PySpark
+        run: pip install pyspark==3.5.3
+
+      - name: Pipeline SQL on the fixture (expectations, row counts, integrity checks)
+        run: make databricks-test
+
   dbt-build:
     name: dbt build on BigQuery (slim CI)
     if: github.event_name == 'pull_request'

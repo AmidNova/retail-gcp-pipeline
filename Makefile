@@ -78,6 +78,13 @@ databricks-smoke: ## Run the Databricks pipeline SQL on a local Spark
 	spark-submit databricks/tests/local_smoke_test.py \
 		include/dataset/online_retail.csv include/dbt/seeds/non_merchandise_stock_codes.csv
 
+.PHONY: databricks-test
+databricks-test: ## Same, on the 10-line fixture with expected row counts (what CI runs)
+	spark-submit databricks/tests/local_smoke_test.py \
+		databricks/tests/fixtures/online_retail_sample.csv \
+		include/dbt/seeds/non_merchandise_stock_codes.csv \
+		databricks/tests/fixtures/expected_rows.json
+
 .PHONY: databricks-deploy
 databricks-deploy: ## Validate and deploy the bundle (pipeline + job)
 	cd databricks && databricks bundle validate && databricks bundle deploy

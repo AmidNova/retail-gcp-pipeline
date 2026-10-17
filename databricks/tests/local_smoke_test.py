@@ -6,16 +6,23 @@ Databricks, so this script emulates it on the same files:
 - read_files(...) is replaced by the local CSV read with the same options;
 - each expectation is evaluated: DROP ROW filters the rows, WARN and FAIL
   UPDATE only count them (and FAIL makes the script exit non-zero);
-- the queries of databricks/validation/validation.sql then run on the result.
+- the queries of databricks/validation/validation.sql then run on the result;
+  the integrity checks ("Every column must be 0") make it exit non-zero if not 0;
+- with an expected rows file, a table whose row count differs fails too.
 
 It checks the SQL logic and the row counts, not the Databricks runtime.
 
 Usage (from the repo root, Spark 3.5+):
     spark-submit databricks/tests/local_smoke_test.py \
         include/dataset/online_retail.csv \
-        include/dbt/seeds/non_merchandise_stock_codes.csv
+        include/dbt/seeds/non_merchandise_stock_codes.csv \
+        [databricks/tests/fixtures/expected_rows.json]
+
+CI runs it on databricks/tests/fixtures/online_retail_sample.csv, ten lines with
+one case per rule, against fixtures/expected_rows.json.
 """
 
+import json
 import re
 import sys
 from pathlib import Path
@@ -34,17 +41,21 @@ EXPECTATION = re.compile(
 )
 READ_FILES = re.compile(r"(?:STREAM )?read_files\(\s*'([^']+)'.*?\)", re.DOTALL)
 STREAM_OF = re.compile(r"STREAM\((\S+?)\)")
+INTEGRITY_MARKER = "Every column must be 0."
 
 
 def local_name(table: str) -> str:
     return table.replace(".", "_")
 
 
-def main(sales_csv: str, codes_csv: str) -> int:
+def main(sales_csv: str, codes_csv: str, expected_rows_json: str | None) -> int:
     spark = SparkSession.builder.appName("retail-smoke-test").getOrCreate()
     spark.sparkContext.setLogLevel("ERROR")
     landing = {"online_retail": sales_csv, "reference": codes_csv}
-    failed_updates = 0
+    expected_rows = (
+        json.loads(Path(expected_rows_json).read_text()) if expected_rows_json else {}
+    )
+    failures = []
 
     for sql_file in sorted(PIPELINE_DIR.glob("*.sql")):
         text = re.sub(r"--[^\n]*", "", sql_file.read_text())
@@ -74,24 +85,39 @@ def main(sales_csv: str, codes_csv: str) -> int:
                 if action == "DROP ROW":
                     frame = frame.filter(f"coalesce(({condition}), false)")
                 elif action == "FAIL UPDATE" and violations:
-                    failed_updates += 1
+                    failures.append(f"{table}: {name} would fail the update")
             # Materialise, like the pipeline does: later queries read the result,
             # not the whole upstream plan.
             frame = frame.localCheckpoint()
-            print(f"  -> {frame.count():,} rows written")
+            rows = frame.count()
+            print(f"  -> {rows:,} rows written")
+            if table in expected_rows and rows != expected_rows[table]:
+                failures.append(
+                    f"{table}: {rows} rows, expected {expected_rows[table]}"
+                )
             frame.createOrReplaceTempView(local_name(table))
 
     # The validation queries run on Databricks, minus the event log (Databricks only).
-    validation = re.sub(r"--[^\n]*", "", VALIDATION_SQL.read_text())
-    for query in filter(str.strip, validation.split(";")):
-        if "event_log(" in query:
+    # Split before removing comments: the integrity marker is a comment.
+    for section in VALIDATION_SQL.read_text().split(";"):
+        query = re.sub(r"--[^\n]*", "", section)
+        if not query.strip() or "event_log(" in query:
             continue
+        result = spark.sql(re.sub(r"retail\.(\w+)\.(\w+)", r"retail_\1_\2", query))
         print()
-        spark.sql(re.sub(r"retail\.(\w+)\.(\w+)", r"retail_\1_\2", query)).show(
-            truncate=False
-        )
-    return 1 if failed_updates else 0
+        result.show(truncate=False)
+        if INTEGRITY_MARKER in section:
+            row = result.first().asDict()
+            failures += [
+                f"integrity check {key} = {value}"
+                for key, value in row.items()
+                if value
+            ]
+
+    for failure in failures:
+        print(f"FAILED: {failure}")
+    return 1 if failures else 0
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1], sys.argv[2]))
+    sys.exit(main(sys.argv[1], sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else None))
