@@ -110,6 +110,47 @@ docker compose exec -T airflow-scheduler airflow dags trigger retail
 > Migré depuis Astro CLI vers Apache Airflow vanilla (`apache/airflow:2.7.3`, LocalExecutor).
 > dbt et Soda tournent dans des venvs isolés (`dbt_venv`, `soda_venv`) dans l'image.
 
+## Port Databricks (Lakeflow, medallion)
+
+Le même pipeline porté sur **Databricks Free Edition** dans `databricks/` : Lakeflow Declarative Pipeline (SQL) en serverless, déployé en Declarative Automation Bundle.
+
+```
+/Volumes/retail/bronze/landing/online_retail/*.csv
+      │  Auto Loader (read_files en STREAM : seuls les nouveaux fichiers)
+      ▼
+bronze.online_retail          brut, tout en STRING
+      ▼
+silver.invoice_lines          typé + flags (FAIL si parsing cassé, WARN invités/annulations)
+silver.sales_lines            périmètre ventes (DROP ROW : qté/prix ≤ 0, sans client, non-marchandise)
+      ▼
+gold.daily_revenue            CA journalier sans trou
+gold.customer_rfm             Recency / Frequency / Monetary
+gold.customer_revenue_concentration   Pareto clients
+```
+
+Les règles de qualité sont des **expectations** Lakeflow (équivalent des tests dbt + Soda), visibles dans l'onglet data quality du pipeline.
+
+```bash
+databricks auth login --host https://<workspace>.cloud.databricks.com
+make databricks-smoke    # SQL du pipeline sur Spark local, avant déploiement
+make databricks-setup    # catalog, schémas, volume, upload des CSV
+make databricks-deploy   # bundle validate + deploy
+make databricks-run      # lance le job retail_weekly
+```
+
+Puis `databricks/validation/validation.sql` dans l'éditeur SQL. Run du 2026-10-17, identique à BigQuery et au smoke test :
+
+| Table | Lignes |
+|---|---|
+| bronze.online_retail | 1 067 371 |
+| silver.sales_lines | 802 651 |
+| gold.daily_revenue | 739 |
+| gold.customer_rfm | 5 852 |
+
+CA 17 434 465 GBP, 36 594 factures, 23,1 % des clients font 80 % du CA.
+
+> Le job est en pause (quota Free Edition) : les runs se lancent à la main. Le catalog est créé en SQL car `databricks catalogs create` échoue sur Free Edition (pas de storage root).
+
 ## CI/CD
 
 Le workflow GitHub Actions (`.github/workflows/ci.yml`) tourne sur chaque PR :

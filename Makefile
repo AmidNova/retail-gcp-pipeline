@@ -67,6 +67,25 @@ dbt-build: ## dbt build (seeds, models, tests) on the dev datasets
 dbt-docs: ## Generate and serve the dbt docs site
 	$(DBT) docs generate && $(DBT) docs serve
 
+# --- Databricks (needs the databricks CLI, logged in) -------------------------
+
+.PHONY: databricks-setup
+databricks-setup: ## Create the retail catalog, schemas, landing volume and upload the CSVs
+	./scripts/setup_databricks.sh
+
+.PHONY: databricks-smoke
+databricks-smoke: ## Run the Databricks pipeline SQL on a local Spark
+	spark-submit databricks/tests/local_smoke_test.py \
+		include/dataset/online_retail.csv include/dbt/seeds/non_merchandise_stock_codes.csv
+
+.PHONY: databricks-deploy
+databricks-deploy: ## Validate and deploy the bundle (pipeline + job)
+	cd databricks && databricks bundle validate && databricks bundle deploy
+
+.PHONY: databricks-run
+databricks-run: ## Run the retail_weekly job and wait for it
+	cd databricks && databricks bundle run retail_weekly
+
 # --- Quality ------------------------------------------------------------------
 
 .PHONY: lint
